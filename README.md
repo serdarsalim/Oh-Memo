@@ -1,78 +1,54 @@
-# extract-apple-voice-memos-transcript
+# Voice Memo Transcripts
 
-This script extracts transcript data from Apple Voice Memos `.m4a` files.
+This repository now includes:
+1. The original transcript extractor script for Apple Voice Memos `.m4a` files.
+2. A modular macOS SwiftUI app scaffold that uses that script and provides content search, copy, and export.
 
-## Requirements
-
-- Python 3
-
-## Usage
+## Original CLI Extractor
 
 ```bash
-./extract-apple-voice-memos-transcript [options] <filename>
+./extract-apple-voice-memos-transcript [--text|--json|--raw] <filename>
 ```
 
-Voice Memos recordings are stored at `~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings` if iCloud sync is enabled for Voice Memos.
+Voice Memos recordings are typically stored at:
+`~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings`
 
-### Options
+## macOS App Scaffold
 
-- `--text`: print transcript as plain text (default)
-- `--json`: print transcript data as JSON
-- `--raw`: print raw transcript data
+The app is implemented as a Swift package with modular targets:
 
-### Example output with `--json` flag
+- `AppShell`: app entry point and composition root.
+- `Domain`: models, protocols, use cases.
+- `Data`: folder scanning, bookmark persistence, script-backed transcript extraction.
+- `Platform`: macOS adapters (`NSOpenPanel`, clipboard, save panel).
+- `FeatureRecordings`: sidebar list and content search UI.
+- `FeatureTranscriptViewer`: transcript detail and inspector UI.
+- `FeatureExport`: copy/export action bar and scan summary.
 
-Examples below are formatted for readability. Actual output is compact (no whitespace or newlines).
+### Implemented UX
 
-Apparently there are two formats: in one, text and attributes are interleaved; in the other, they are separated. The conditions under which each format is used are unknown. Even with the same version of Voice Memos, recordings may be saved in different formats.
+- First-run folder selection (with persisted bookmark).
+- Scan/rescan `.m4a` files in selected folder.
+- Search by transcript content (not filename).
+- Sort by newest/oldest/longest/recently scanned.
+- Appearance mode picker: `System`, `Light`, `Dark` (persisted).
+- Copy current transcript.
+- Copy all transcripts.
+- Export `.txt` and `.json`.
+- Failed-file sheet with error details.
 
+## How to Run in Xcode
 
-```json
-{
-  "attributedString": [
-    "This is",
-    { "timeRange": [0, 0.42] },
-    " the transcript text",
-    { "timeRange": [0.42, 1.23] },
-    " interleaved with attributes.",
-    { "timeRange": [1.23, 2.00] }
-  ],
-  "locale": { "identifier": "en_US", "current": 0 }
-}
-```
+1. Open this folder as a Swift package in Xcode.
+2. Select executable target `VoiceMemoTranscriptsApp`.
+3. Run the app.
 
-```json
-{
-  "attributedString": {
-    "attributeTable": [    
-      { "timeRange": [0, 0.42] },
-      { "timeRange": [0.42, 1.23] },
-      { "timeRange": [1.23, 2.00] }
-    ],
-    "runs": [
-      "In this format",
-      0,
-      " text is interleaved with",
-      1,
-      " indices of attributes.",
-      2
-    ]
-  },
-  "locale": { "identifier": "en_US", "current": 0 }
-}
-```
+The extractor script is bundled at:
+`Sources/AppShell/Resources/extract-apple-voice-memos-transcript`
 
-## Transcript data format
+The app also checks `VOICE_MEMO_EXTRACTOR_PATH` env var first. If needed, set it in your Xcode Run scheme to point to a script path on disk.
 
-Apple Voice Memos stores transcripts in `.m4a` files using the `tsrp` atom[^atom], which appears to be an Apple-proprietary extension. The atom hierarchy is:
+## Notes
 
-```
-moov
-└── trak
-    └── udta
-        └── tsrp
-```
-
-The `tsrp` atom contains UTF-8 encoded JSON data. See the example output above for the structure.
-
-[^atom]: [Atoms | Apple Developer Documentation](https://developer.apple.com/documentation/quicktime-file-format/atoms)
+- App Store-safe path handling is implemented with user-selected folder access instead of hardcoded Voice Memos container paths.
+- The UI is designed around transcript content search and date-based sort because Voice Memo filenames are opaque IDs.
