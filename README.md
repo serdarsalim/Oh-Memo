@@ -1,69 +1,84 @@
 # Transcript Manager
 
-Transcript Manager is a macOS SwiftUI app for browsing Apple Voice Memos transcripts from `.m4a` recordings.
+Transcript Manager is a macOS app that helps you organize, search, and act on your Apple Voice Memos transcripts.
 
-It scans a user-selected Voice Memos folder, extracts transcript payloads from each file, and gives you a fast sidebar + detail workflow for searching, reading, copying, and exporting transcripts.
+If Voice Memos feels too basic for serious follow-up work, this app gives you a focused workspace for transcript management.
 
-## What This App Does
+## What You Can Do
 
-- Loads a recordings folder using a persisted security-scoped bookmark.
-- Scans `.m4a` files and extracts transcript data via the bundled extractor script.
-- Watches the folder for file changes and auto-rescans when new recordings appear.
-- Shows a searchable/sortable recording list in the sidebar.
-- Displays transcript detail with:
-  - Editable recording description/title (persisted between app restarts)
-  - Inline audio playback (play/pause, seek slider, elapsed/total time)
-  - Copy transcript action
-- Prefers saved description text in the sidebar row title when available.
-- Exports merged transcripts as `.txt` or `.json`.
-- Shows extraction failures in a dedicated sheet.
+- See your recordings in a clean, searchable sidebar.
+- Rename recordings with your own titles (saved between restarts).
+- Read transcripts with inline audio playback.
+- Auto-detect new recordings from your folder.
+- Copy a single transcript or export all transcripts.
+- Run AI analysis on a selected transcript:
+  - Summary
+  - Action items
+  - Conversion sentiment score
+  - What went well / what to improve
+- Customize the AI prompt and keep your prompt saved across sessions.
 
-## Transcript Rendering
+## Why People Use It
 
-The app tries to preserve Apple transcript formatting when available in the transcript payload.
-If the payload has no useful structure, it falls back to readable sentence/paragraph formatting.
+- Turn long calls into clear next steps.
+- Find key conversations fast by keyword.
+- Keep transcript organization separate from the Voice Memos UI.
+- Get a lead-quality style summary quickly without manual review.
 
-## Project Structure
+## Quick Start
 
-- `Sources/AppShell`: app composition, root view, app model/state
-- `Sources/Domain`: core models/protocols/use cases
-- `Sources/Data`: folder scanner + script transcript extraction + bookmark persistence
-- `Sources/Platform`: macOS wrappers (open panel, save panel, clipboard)
-- `Sources/FeatureRecordings`: sidebar/search/list UI
-- `Sources/FeatureTranscriptViewer`: transcript detail/player/inspector UI
-- `Sources/FeatureExport`: footer export/status action bar
+1. Launch the app.
+2. Select your Voice Memos `Recordings` folder.
+3. Wait for initial scan (first set loads first, then the rest continues in background).
+4. Click any transcript in the sidebar to open it.
+5. Use the floating right-side toggle to switch between:
+   - Transcript view
+   - AI Assistant view
 
-## Run
+## AI Assistant
+
+- Add your OpenAI API key from the gear icon in the footer.
+- Switch to AI view; analysis auto-runs for that transcript if no cached analysis exists yet.
+- Use:
+  - Copy icon to copy AI output
+  - Refresh icon to re-analyze
+  - Prompt icon to edit your analysis prompt
+- AI results persist across app restarts.
+
+## Export and Copy
+
+From the export icon menu in the footer, you can:
+
+- Copy all transcripts to clipboard
+- Download all transcripts as `.txt`
+
+## Build and Run (No Xcode Required)
+
+From this folder:
 
 ```bash
 swift build
 swift run VoiceMemoTranscriptsApp
 ```
 
-## Build Standalone App (No Xcode)
-
-Create a double-clickable app bundle in `dist/`:
+To build a standalone app bundle:
 
 ```bash
 ./build-app.sh
 open dist/VoiceMemoTranscriptsApp.app
 ```
 
-## Extractor CLI
+## Folder to Select
 
-You can run the original extractor script directly:
-
-```bash
-./extract-apple-voice-memos-transcript [--text|--json|--raw] <filename>
-```
-
-The app uses the bundled copy at:
-
-`Sources/AppShell/Resources/extract-apple-voice-memos-transcript`
-
-## Typical Voice Memos Folder
+Typical path:
 
 `~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings`
+
+## Privacy Note
+
+- Transcript data stays on your machine unless you explicitly use AI analysis.
+- AI analysis sends selected transcript text to OpenAI API.
+- API key is managed from app settings.
 
 ## License
 
