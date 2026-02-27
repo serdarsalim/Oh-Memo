@@ -9,17 +9,20 @@ public struct RecordingsSidebarView: View {
     @Binding private var selectedRecordingID: String?
     private let recordings: [RecordingItem]
     private let descriptionsByRecordingID: [String: String]
+    private let onDescriptionChange: (String, String) -> Void
 
     public init(
         searchQuery: Binding<String>,
         selectedRecordingID: Binding<String?>,
         recordings: [RecordingItem],
-        descriptionsByRecordingID: [String: String]
+        descriptionsByRecordingID: [String: String],
+        onDescriptionChange: @escaping (String, String) -> Void
     ) {
         _searchQuery = searchQuery
         _selectedRecordingID = selectedRecordingID
         self.recordings = recordings
         self.descriptionsByRecordingID = descriptionsByRecordingID
+        self.onDescriptionChange = onDescriptionChange
     }
 
     public var body: some View {
@@ -56,7 +59,8 @@ public struct RecordingsSidebarView: View {
                 List(recordings, selection: $selectedRecordingID) { item in
                     RecordingRowView(
                         item: item,
-                        description: descriptionsByRecordingID[item.id] ?? ""
+                        description: descriptionsByRecordingID[item.id] ?? "",
+                        onDescriptionChange: { onDescriptionChange(item.id, $0) }
                     )
                         .tag(item.id)
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
@@ -116,12 +120,41 @@ public struct RecordingsSidebarView: View {
 private struct RecordingRowView: View {
     let item: RecordingItem
     let description: String
+    let onDescriptionChange: (String) -> Void
+
+    @State private var isEditing = false
+    @State private var draftDescription = ""
+    @FocusState private var isRenameFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(primaryText)
-                .font(.system(size: 13, weight: .regular))
-                .lineLimit(2)
+            if isEditing {
+                TextField("Add description", text: $draftDescription)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, weight: .regular))
+                    .focused($isRenameFieldFocused)
+                    .onAppear {
+                        DispatchQueue.main.async {
+                            isRenameFieldFocused = true
+                        }
+                    }
+                    .onSubmit {
+                        finishEditing()
+                    }
+                    .onChange(of: isRenameFieldFocused) { _, focused in
+                        if !focused {
+                            finishEditing()
+                        }
+                    }
+            } else {
+                Text(primaryText)
+                    .font(.system(size: 13, weight: .regular))
+                    .lineLimit(2)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        beginEditing()
+                    }
+            }
 
             Text(RecordingDateDisplay.timelineLabel(for: item.source.effectiveDate))
                 .font(.system(size: 11))
@@ -142,6 +175,31 @@ private struct RecordingRowView: View {
         }
 
         return item.snippet
+    }
+
+    private func beginEditing() {
+        draftDescription = editableSeedText
+        isEditing = true
+    }
+
+    private func finishEditing() {
+        onDescriptionChange(draftDescription)
+        isRenameFieldFocused = false
+        isEditing = false
+    }
+
+    private var editableSeedText: String {
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDescription.isEmpty {
+            return description
+        }
+
+        let trimmedVoiceMemoTitle = item.source.voiceMemoTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedVoiceMemoTitle.isEmpty {
+            return trimmedVoiceMemoTitle
+        }
+
+        return ""
     }
 }
 

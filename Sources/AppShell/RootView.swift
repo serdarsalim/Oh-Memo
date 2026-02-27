@@ -60,7 +60,10 @@ struct RootView: View {
                         searchQuery: $model.searchQuery,
                         selectedRecordingID: $model.selectedRecordingID,
                         recordings: model.visibleRecordings,
-                        descriptionsByRecordingID: model.descriptionsByRecordingID
+                        descriptionsByRecordingID: model.descriptionsByRecordingID,
+                        onDescriptionChange: { recordingID, description in
+                            model.setDescription(description, for: recordingID)
+                        }
                     )
                     .frame(width: sidebarWidth)
 

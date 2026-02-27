@@ -16,6 +16,7 @@ public struct TranscriptDetailView: View {
     @StateObject private var audioPlayer = InlineAudioPlayer()
     @State private var copiedRecordingID: String?
     @State private var editingDescriptionRecordingID: String?
+    @State private var descriptionDraft: String = ""
     @FocusState private var focusedDescriptionRecordingID: String?
 
     public init(
@@ -54,7 +55,7 @@ public struct TranscriptDetailView: View {
         }
         .onChange(of: focusedDescriptionRecordingID) { _, newValue in
             if newValue == nil {
-                editingDescriptionRecordingID = nil
+                endDescriptionEditing(saveChanges: true)
             }
         }
         .onDisappear {
@@ -186,11 +187,11 @@ public struct TranscriptDetailView: View {
 
     @ViewBuilder
     private func descriptionFieldOrTitle(for recording: RecordingItem) -> some View {
-        let description = descriptionTextForRecordingID(recording.id)
-        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = displayDescriptionText(for: recording)
+        let hasDisplayTitle = !displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         if editingDescriptionRecordingID == recording.id {
-            TextField("Add description", text: descriptionBinding(for: recording))
+            TextField("Add description", text: $descriptionDraft)
                 .textFieldStyle(.plain)
                 .font(.title3.weight(.semibold))
                 .focused($focusedDescriptionRecordingID, equals: recording.id)
@@ -200,15 +201,15 @@ public struct TranscriptDetailView: View {
                     }
                 }
                 .onSubmit {
-                    endDescriptionEditing()
+                    endDescriptionEditing(saveChanges: true)
                 }
         } else {
             Button {
                 beginDescriptionEditing(for: recording.id)
             } label: {
-                Text(trimmedDescription.isEmpty ? "Add description" : description)
+                Text(hasDisplayTitle ? displayTitle : "Add description")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(trimmedDescription.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(hasDisplayTitle ? .primary : .secondary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -218,15 +219,37 @@ public struct TranscriptDetailView: View {
     }
 
     private func beginDescriptionEditing(for recordingID: String) {
+        guard let recording else { return }
+        descriptionDraft = displayDescriptionText(for: recording)
         editingDescriptionRecordingID = recordingID
         DispatchQueue.main.async {
             focusedDescriptionRecordingID = recordingID
         }
     }
 
-    private func endDescriptionEditing() {
+    private func endDescriptionEditing(saveChanges: Bool) {
+        if saveChanges, let recordingID = editingDescriptionRecordingID {
+            onDescriptionChange(recordingID, descriptionDraft)
+        }
         focusedDescriptionRecordingID = nil
         editingDescriptionRecordingID = nil
+        descriptionDraft = ""
+    }
+
+    private func displayDescriptionText(for recording: RecordingItem) -> String {
+        let description = descriptionTextForRecordingID(recording.id)
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDescription.isEmpty {
+            return description
+        }
+
+        let voiceMemoTitle = recording.source.voiceMemoTitle ?? ""
+        let trimmedVoiceMemoTitle = voiceMemoTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedVoiceMemoTitle.isEmpty {
+            return voiceMemoTitle
+        }
+
+        return ""
     }
 
     private func appleAttributedTranscript(from transcript: TranscriptData) -> NSAttributedString? {
