@@ -21,15 +21,15 @@ public struct RecordingsSidebarView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search transcript content", text: $searchQuery)
+                TextField("Search", text: $searchQuery)
                     .textFieldStyle(.plain)
             }
             .padding(10)
             .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(.quaternary.opacity(0.35))
+                Rectangle()
+                    .fill(.white)
             )
-            .padding([.top, .horizontal], 12)
+            .padding([.top, .horizontal], 10)
 
             if recordings.isEmpty {
                 ContentUnavailableView(
@@ -43,10 +43,13 @@ public struct RecordingsSidebarView: View {
                 List(recordings, selection: $selectedRecordingID) { item in
                     RecordingRowView(item: item)
                         .tag(item.id)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 }
-                .listStyle(.sidebar)
+                .listStyle(.plain)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.regularMaterial)
     }
 }
 
@@ -56,56 +59,14 @@ private struct RecordingRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(item.snippet)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13, weight: .regular))
                 .lineLimit(2)
 
-            HStack(spacing: 8) {
-                Text(Self.dateFormatter.string(from: item.source.effectiveDate))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Label(statusLabel, systemImage: statusIcon)
-                    .font(.system(size: 11, weight: .medium))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(statusColor.opacity(0.15), in: Capsule())
-                    .foregroundStyle(statusColor)
-            }
+            Text(Self.dateFormatter.string(from: item.source.effectiveDate))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
-    }
-
-    private var statusLabel: String {
-        switch item.status {
-        case .ready:
-            return "Ready"
-        case .missing:
-            return "No Transcript"
-        case .failed:
-            return "Error"
-        }
-    }
-
-    private var statusIcon: String {
-        switch item.status {
-        case .ready:
-            return "checkmark.circle.fill"
-        case .missing:
-            return "minus.circle.fill"
-        case .failed:
-            return "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var statusColor: Color {
-        switch item.status {
-        case .ready:
-            return .green
-        case .missing:
-            return .orange
-        case .failed:
-            return .red
-        }
     }
 
     private static let dateFormatter: DateFormatter = {

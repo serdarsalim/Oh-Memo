@@ -6,7 +6,12 @@ import SwiftUI
 
 struct RootView: View {
     @StateObject private var model: AppModel
+    @State private var isDetailsVisible = false
+    @State private var hasInitializedDetailsVisibility = false
     @Environment(\.colorScheme) private var systemColorScheme
+    private static let detailsVisiblePreferenceKey = "voiceMemo.detailsVisible"
+    private let sidebarWidth: CGFloat = 336
+    private let detailsColumnWidth: CGFloat = 320
 
     init(model: AppModel) {
         _model = StateObject(wrappedValue: model)
@@ -22,6 +27,7 @@ struct RootView: View {
             .ignoresSafeArea()
 
             content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .preferredColorScheme(model.preferredColorScheme)
         .sheet(isPresented: $model.isShowingFailures) {
@@ -29,6 +35,7 @@ struct RootView: View {
         }
         .onAppear {
             model.onAppear()
+            initializeDetailsVisibilityIfNeeded()
         }
         .overlay(alignment: .topTrailing) {
             if let message = model.transientMessage {
@@ -47,47 +54,54 @@ struct RootView: View {
         if model.folderURL == nil {
             firstRunView
         } else {
-            NavigationSplitView {
-                RecordingsSidebarView(
-                    searchQuery: $model.searchQuery,
-                    selectedRecordingID: $model.selectedRecordingID,
-                    recordings: model.visibleRecordings
-                )
-                .navigationTitle("Recordings")
-                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 380)
-            } detail: {
-                HSplitView {
-                    TranscriptDetailView(
-                        recording: model.selectedRecording,
-                        activeQuery: model.searchQuery
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    RecordingsSidebarView(
+                        searchQuery: $model.searchQuery,
+                        selectedRecordingID: $model.selectedRecordingID,
+                        recordings: model.visibleRecordings
                     )
-                    .layoutPriority(1)
+                    .frame(width: sidebarWidth)
 
-                    RecordingInspectorView(recording: model.selectedRecording)
-                        .frame(minWidth: 280, idealWidth: 310, maxWidth: 360)
+                    Divider()
+
+                    HStack(spacing: 0) {
+                        TranscriptDetailView(
+                            recording: model.selectedRecording,
+                            onCopyTranscript: { _ in model.copyCurrentTranscript() },
+                            isDetailsVisible: isDetailsVisible,
+                            onToggleDetails: toggleDetailsVisibility
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        if isDetailsVisible {
+                            Divider()
+                            RecordingInspectorView(recording: model.selectedRecording)
+                                .frame(width: detailsColumnWidth)
+                                .frame(maxHeight: .infinity)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-            .navigationSplitViewStyle(.balanced)
-            .safeAreaInset(edge: .bottom) {
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+
                 ExportActionBar(
                     summary: model.scanSummary,
                     isBusy: model.isScanning,
-                    folderPath: model.folderPathDescription,
+                    folderName: model.folderName,
                     trailingView: AnyView(AppearanceFooterToggle(selection: $model.appearanceMode)),
-                    onCopyCurrent: model.copyCurrentTranscript,
-                    onCopyAll: model.copyAllTranscripts,
+                    onOpenFolder: model.openCurrentFolderInFinder,
+                    onChangeFolder: model.chooseFolder,
+                    onRescan: model.rescan,
                     onExportText: model.exportText,
-                    onExportJSON: model.exportJSON,
                     onShowErrors: model.showFailures
                 )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .toolbar {
-                ToolbarItemGroup(placement: .navigation) {
-                    Button("Change Folder", action: model.chooseFolder)
-                    Button("Rescan", action: model.rescan)
-                        .disabled(model.isScanning)
-                }
-
                 ToolbarItem(placement: .automatic) {
                     Picker("Sort", selection: $model.sortOption) {
                         ForEach(RecordingSortOption.allCases) { option in
@@ -96,32 +110,6 @@ struct RootView: View {
                     }
                     .pickerStyle(.menu)
                 }
-
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 8) {
-                        Text(model.folderName)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if model.isScanning {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Scanning")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: 420)
-                }
-            }
-            .overlay(alignment: .top) {
-                if let banner = model.errorBanner {
-                    ErrorBanner(text: banner) {
-                        model.dismissError()
-                    }
-                    .padding(.top, 8)
-                    .padding(.horizontal, 24)
-                }
             }
         }
     }
@@ -129,7 +117,7 @@ struct RootView: View {
     private var firstRunView: some View {
         VStack(spacing: 24) {
             VStack(spacing: 22) {
-                Text("Voice Memo Transcripts")
+                Text("Transcript Manager")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
 
@@ -189,6 +177,21 @@ struct RootView: View {
         }
         return AnyShapeStyle(Color.white.opacity(0.75))
     }
+
+    private func initializeDetailsVisibilityIfNeeded() {
+        guard !hasInitializedDetailsVisibility else { return }
+        hasInitializedDetailsVisibility = true
+        isDetailsVisible = UserDefaults.standard.bool(forKey: Self.detailsVisiblePreferenceKey)
+    }
+
+    private func toggleDetailsVisibility() {
+        isDetailsVisible.toggle()
+        if isDetailsVisible {
+            UserDefaults.standard.set(true, forKey: Self.detailsVisiblePreferenceKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.detailsVisiblePreferenceKey)
+        }
+    }
 }
 
 private struct AppearanceFooterToggle: View {
@@ -227,26 +230,6 @@ private struct ToastView: View {
             .padding(.vertical, 6)
             .background(.ultraThickMaterial, in: Capsule())
             .shadow(radius: 4, y: 2)
-    }
-}
-
-private struct ErrorBanner: View {
-    let text: String
-    let onClose: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.yellow)
-            Text(text)
-                .font(.subheadline)
-                .lineLimit(2)
-            Spacer()
-            Button("Dismiss", action: onClose)
-                .buttonStyle(.bordered)
-        }
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
