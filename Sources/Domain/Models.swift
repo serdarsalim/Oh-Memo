@@ -18,14 +18,22 @@ public enum RecordingSortOption: String, CaseIterable, Identifiable, Sendable {
 public struct RecordingFile: Identifiable, Hashable, Sendable {
     public let fileURL: URL
     public let fileName: String
+    public let voiceMemoTitle: String?
     public let recordedAt: Date?
     public let fileModifiedAt: Date
 
     public var id: String { fileURL.path }
 
-    public init(fileURL: URL, fileName: String, recordedAt: Date?, fileModifiedAt: Date) {
+    public init(
+        fileURL: URL,
+        fileName: String,
+        voiceMemoTitle: String? = nil,
+        recordedAt: Date?,
+        fileModifiedAt: Date
+    ) {
         self.fileURL = fileURL
         self.fileName = fileName
+        self.voiceMemoTitle = voiceMemoTitle
         self.recordedAt = recordedAt
         self.fileModifiedAt = fileModifiedAt
     }

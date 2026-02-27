@@ -132,7 +132,16 @@ private struct RecordingRowView: View {
 
     private var primaryText: String {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? item.snippet : trimmed
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+
+        let title = item.source.voiceMemoTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty {
+            return title
+        }
+
+        return item.snippet
     }
 }
 
