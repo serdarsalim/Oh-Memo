@@ -33,7 +33,8 @@ struct OpenAITranscriptAnalyzer {
           \"improvements\": string[]
         }
         Rules:
-        - score must be integer 0-10
+        - score must be integer 0-10 representing likelihood that this lead will convert
+        - sentiment must be a short conversion label like \"high\", \"medium\", \"low\", \"positive\", \"neutral\", or \"negative\"
         - Keep summary under 120 words
         - actionItems max 6 items
         - strengths max 4 items

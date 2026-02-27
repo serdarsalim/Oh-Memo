@@ -10,8 +10,6 @@ public struct TranscriptDetailView: View {
     private let descriptionTextForRecordingID: (String) -> String
     private let onDescriptionChange: (String, String) -> Void
     private let onCopyTranscript: (RecordingItem) -> Void
-    private let isDetailsVisible: Bool
-    private let onToggleDetails: () -> Void
     private let maxContentWidth: CGFloat = 800
     @StateObject private var audioPlayer = InlineAudioPlayer()
     @State private var copiedRecordingID: String?
@@ -23,16 +21,12 @@ public struct TranscriptDetailView: View {
         recording: RecordingItem?,
         descriptionTextForRecordingID: @escaping (String) -> String,
         onDescriptionChange: @escaping (String, String) -> Void,
-        onCopyTranscript: @escaping (RecordingItem) -> Void,
-        isDetailsVisible: Bool,
-        onToggleDetails: @escaping () -> Void
+        onCopyTranscript: @escaping (RecordingItem) -> Void
     ) {
         self.recording = recording
         self.descriptionTextForRecordingID = descriptionTextForRecordingID
         self.onDescriptionChange = onDescriptionChange
         self.onCopyTranscript = onCopyTranscript
-        self.isDetailsVisible = isDetailsVisible
-        self.onToggleDetails = onToggleDetails
     }
 
     public var body: some View {
@@ -99,19 +93,6 @@ public struct TranscriptDetailView: View {
                     .buttonStyle(.plain)
                     .help(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
                     .accessibilityLabel(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
-
-                    Button(action: onToggleDetails) {
-                        Image(systemName: "sidebar.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 30, height: 30)
-                            .background(
-                                Circle()
-                                    .fill(isDetailsVisible ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help(isDetailsVisible ? "Hide Details" : "Show Details")
-                    .accessibilityLabel(isDetailsVisible ? "Hide Details" : "Show Details")
                 }
                 .frame(minHeight: 44)
 

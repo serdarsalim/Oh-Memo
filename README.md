@@ -40,6 +40,15 @@ swift build
 swift run VoiceMemoTranscriptsApp
 ```
 
+## Build Standalone App (No Xcode)
+
+Create a double-clickable app bundle in `dist/`:
+
+```bash
+./build-app.sh
+open dist/VoiceMemoTranscriptsApp.app
+```
+
 ## Extractor CLI
 
 You can run the original extractor script directly:

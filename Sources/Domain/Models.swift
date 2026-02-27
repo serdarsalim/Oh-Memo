@@ -79,7 +79,13 @@ public struct RecordingItem: Identifiable, Hashable, Sendable {
     }
 
     public var searchText: String {
-        transcript?.text.lowercased() ?? ""
+        [
+            source.voiceMemoTitle,
+            source.fileName,
+            transcript?.text
+        ]
+        .compactMap { $0?.lowercased() }
+        .joined(separator: "\n")
     }
 
     public var snippet: String {

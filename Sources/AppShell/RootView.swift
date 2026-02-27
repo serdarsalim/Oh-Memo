@@ -4,14 +4,16 @@ import FeatureRecordings
 import FeatureTranscriptViewer
 import SwiftUI
 
+fileprivate enum CenterPaneMode {
+    case transcript
+    case aiAssistant
+}
+
 struct RootView: View {
     @StateObject private var model: AppModel
-    @State private var isDetailsVisible = false
-    @State private var hasInitializedDetailsVisibility = false
+    @State private var centerPaneMode: CenterPaneMode = .transcript
     @Environment(\.colorScheme) private var systemColorScheme
-    private static let detailsVisiblePreferenceKey = "voiceMemo.detailsVisible"
-    private let sidebarWidth: CGFloat = 336
-    private let detailsColumnWidth: CGFloat = 320
+    private let sidebarWidth: CGFloat = 302
 
     init(model: AppModel) {
         _model = StateObject(wrappedValue: model)
@@ -42,7 +44,14 @@ struct RootView: View {
         }
         .onAppear {
             model.onAppear()
-            initializeDetailsVisibilityIfNeeded()
+        }
+        .onChange(of: centerPaneMode) { _, newMode in
+            guard newMode == .aiAssistant else { return }
+            model.analyzeSelectedTranscriptIfMissing()
+        }
+        .onChange(of: model.selectedRecordingID) { _, _ in
+            guard centerPaneMode == .aiAssistant else { return }
+            model.analyzeSelectedTranscriptIfMissing()
         }
         .overlay(alignment: .topTrailing) {
             if let message = model.transientMessage {
@@ -76,39 +85,7 @@ struct RootView: View {
 
                     Divider()
 
-                    HStack(spacing: 0) {
-                        TranscriptDetailView(
-                            recording: model.selectedRecording,
-                            descriptionTextForRecordingID: model.description(for:),
-                            onDescriptionChange: { recordingID, description in
-                                model.setDescription(description, for: recordingID)
-                            },
-                            onCopyTranscript: { _ in model.copyCurrentTranscript() },
-                            isDetailsVisible: isDetailsVisible,
-                            onToggleDetails: toggleDetailsVisibility
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                        if isDetailsVisible {
-                            Divider()
-                            AIAssistantSidebarView(
-                                recording: model.selectedRecording,
-                                visibleSections: model.aiVisibleSections,
-                                report: model.selectedAIReport,
-                                isAnalyzing: model.aiIsAnalyzing,
-                                errorMessage: model.aiAnalysisError,
-                                hasAPIKey: model.hasOpenAIAPIKey,
-                                onAnalyze: { model.analyzeSelectedTranscript(force: false) },
-                                onRegenerate: { model.analyzeSelectedTranscript(force: true) },
-                                onCopy: model.copySelectedAIReport,
-                                onToggleSection: model.toggleAISection,
-                                onOpenSettings: { model.isShowingAISettings = true }
-                            )
-                                .frame(width: detailsColumnWidth)
-                                .frame(maxHeight: .infinity)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    centerPane
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -142,6 +119,52 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+    }
+
+    private var centerPane: some View {
+        HStack(alignment: .top, spacing: 12) {
+            switch centerPaneMode {
+            case .transcript:
+                TranscriptDetailView(
+                    recording: model.selectedRecording,
+                    descriptionTextForRecordingID: model.description(for:),
+                    onDescriptionChange: { recordingID, description in
+                        model.setDescription(description, for: recordingID)
+                    },
+                    onCopyTranscript: { _ in model.copyCurrentTranscript() }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .aiAssistant:
+                aiAssistantCard
+            }
+
+            CenterPaneModeRail(selection: $centerPaneMode)
+                .padding(.top, 18)
+        }
+        .padding(.trailing, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var aiAssistantCard: some View {
+        AIAssistantSidebarView(
+            recording: model.selectedRecording,
+            report: model.selectedAIReport,
+            isAnalyzing: model.aiIsAnalyzing,
+            errorMessage: model.aiAnalysisError,
+            hasAPIKey: model.hasOpenAIAPIKey,
+            onRegenerate: { model.analyzeSelectedTranscript(force: true) },
+            onCopy: model.copySelectedAIReport,
+            onOpenSettings: { model.isShowingAISettings = true }
+        )
+        .padding(18)
+        .frame(maxWidth: 800, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var firstRunView: some View {
@@ -207,20 +230,48 @@ struct RootView: View {
         }
         return AnyShapeStyle(Color.white.opacity(0.75))
     }
+}
 
-    private func initializeDetailsVisibilityIfNeeded() {
-        guard !hasInitializedDetailsVisibility else { return }
-        hasInitializedDetailsVisibility = true
-        isDetailsVisible = UserDefaults.standard.bool(forKey: Self.detailsVisiblePreferenceKey)
+private struct CenterPaneModeRail: View {
+    @Binding private var selection: CenterPaneMode
+
+    init(selection: Binding<CenterPaneMode>) {
+        _selection = selection
     }
 
-    private func toggleDetailsVisibility() {
-        isDetailsVisible.toggle()
-        if isDetailsVisible {
-            UserDefaults.standard.set(true, forKey: Self.detailsVisiblePreferenceKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: Self.detailsVisiblePreferenceKey)
+    var body: some View {
+        VStack(spacing: 8) {
+            modeButton(
+                icon: "doc.text",
+                label: "Transcript",
+                mode: .transcript
+            )
+            modeButton(
+                icon: "sparkles",
+                label: "AI Assistant",
+                mode: .aiAssistant
+            )
         }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    private func modeButton(icon: String, label: String, mode: CenterPaneMode) -> some View {
+        Button {
+            selection = mode
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle()
+                        .fill(selection == mode ? Color.accentColor.opacity(0.24) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 

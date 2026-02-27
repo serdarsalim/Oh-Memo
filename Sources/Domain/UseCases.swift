@@ -61,7 +61,7 @@ public struct SearchTranscriptsUseCase: Sendable {
             filtered = recordings
         } else {
             filtered = recordings.filter {
-                normalizedSearchText($0.transcript?.text ?? "").contains(normalizedQuery)
+                normalizedSearchText($0.searchText).contains(normalizedQuery)
             }
         }
 
