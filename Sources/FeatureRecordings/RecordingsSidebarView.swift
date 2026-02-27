@@ -39,7 +39,7 @@ public struct RecordingsSidebarView: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(.white)
+                    .fill(Color(nsColor: .controlBackgroundColor))
             )
             .padding([.top, .horizontal], 10)
             .padding(.bottom, 8)

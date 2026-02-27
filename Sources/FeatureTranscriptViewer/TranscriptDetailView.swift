@@ -171,7 +171,7 @@ public struct TranscriptDetailView: View {
         .frame(maxWidth: maxContentWidth, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white)
+                .fill(Color(nsColor: .textBackgroundColor))
         )
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
