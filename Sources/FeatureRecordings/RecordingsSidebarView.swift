@@ -29,14 +29,14 @@ public struct RecordingsSidebarView: View {
                     .foregroundStyle(.secondary)
 #if os(macOS)
                 ActivatingPlainTextField(text: $searchQuery, placeholder: "")
-                    .frame(height: 34)
+                    .frame(height: 30)
 #else
                 TextField("", text: $searchQuery)
                     .textFieldStyle(.plain)
 #endif
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(.white)
@@ -123,7 +123,7 @@ private struct RecordingRowView: View {
                 .font(.system(size: 13, weight: .regular))
                 .lineLimit(2)
 
-            Text(Self.dateFormatter.string(from: item.source.effectiveDate))
+            Text(RecordingDateDisplay.timelineLabel(for: item.source.effectiveDate))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -134,13 +134,6 @@ private struct RecordingRowView: View {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? item.snippet : trimmed
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
 }
 
 #if os(macOS)
