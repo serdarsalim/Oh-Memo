@@ -4,67 +4,67 @@ import SwiftUI
 public struct ExportActionBar: View {
     private let summary: ScanResult?
     private let isBusy: Bool
-    private let folderPath: String
+    private let folderName: String
     private let trailingView: AnyView?
-    private let onCopyCurrent: () -> Void
-    private let onCopyAll: () -> Void
+    private let onOpenFolder: () -> Void
+    private let onChangeFolder: () -> Void
+    private let onRescan: () -> Void
     private let onExportText: () -> Void
-    private let onExportJSON: () -> Void
     private let onShowErrors: () -> Void
 
     public init(
         summary: ScanResult?,
         isBusy: Bool,
-        folderPath: String,
+        folderName: String,
         trailingView: AnyView? = nil,
-        onCopyCurrent: @escaping () -> Void,
-        onCopyAll: @escaping () -> Void,
+        onOpenFolder: @escaping () -> Void,
+        onChangeFolder: @escaping () -> Void,
+        onRescan: @escaping () -> Void,
         onExportText: @escaping () -> Void,
-        onExportJSON: @escaping () -> Void,
         onShowErrors: @escaping () -> Void
     ) {
         self.summary = summary
         self.isBusy = isBusy
-        self.folderPath = folderPath
+        self.folderName = folderName
         self.trailingView = trailingView
-        self.onCopyCurrent = onCopyCurrent
-        self.onCopyAll = onCopyAll
+        self.onOpenFolder = onOpenFolder
+        self.onChangeFolder = onChangeFolder
+        self.onRescan = onRescan
         self.onExportText = onExportText
-        self.onExportJSON = onExportJSON
         self.onShowErrors = onShowErrors
     }
 
     public var body: some View {
         HStack(spacing: 10) {
-            Button("Copy Current", action: onCopyCurrent)
+            Button("Rescan", action: onRescan)
                 .disabled(isBusy)
 
-            Button("Copy All", action: onCopyAll)
+            Button("Export All", action: onExportText)
                 .disabled(isBusy)
 
-            Button("Export TXT", action: onExportText)
-                .disabled(isBusy)
-
-            Button("Export JSON", action: onExportJSON)
-                .disabled(isBusy)
-
-            HStack(spacing: 6) {
+            Button(action: onOpenFolder) {
                 Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
-                Text(folderPath)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 30, height: 30)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button("Open in Finder", action: onOpenFolder)
+                Button("Change Folder", action: onChangeFolder)
+            }
+            .help("Open folder (right-click for more options)")
+
+            Text("/\(folderName)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer()
 
             if let summary {
                 HStack(spacing: 8) {
                     SummaryPill(label: "Total", value: summary.recordings.count, color: .secondary)
                     SummaryPill(label: "Ready", value: summary.readyCount, color: .green)
-                    SummaryPill(label: "Missing", value: summary.missingCount, color: .orange)
                     if summary.failedCount > 0 {
                         Button(action: onShowErrors) {
                             SummaryPill(label: "Failed", value: summary.failedCount, color: .red)

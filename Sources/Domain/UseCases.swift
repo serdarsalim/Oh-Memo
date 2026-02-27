@@ -17,6 +17,9 @@ public struct ScanRecordingsUseCase: Sendable {
         for (index, file) in files.enumerated() {
             do {
                 let transcript = try await extractor.extractTranscript(from: file.fileURL)
+                guard !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    continue
+                }
                 recordings.append(
                     RecordingItem(
                         source: file,
@@ -27,41 +30,14 @@ public struct ScanRecordingsUseCase: Sendable {
                     )
                 )
             } catch let extractionError as TranscriptExtractionError {
-                switch extractionError {
-                case .missingTranscript:
-                    recordings.append(
-                        RecordingItem(
-                            source: file,
-                            transcript: nil,
-                            status: .missing,
-                            scanIndex: index,
-                            errorMessage: extractionError.localizedDescription
-                        )
-                    )
-                default:
-                    let message = extractionError.localizedDescription
-                    recordings.append(
-                        RecordingItem(
-                            source: file,
-                            transcript: nil,
-                            status: .failed,
-                            scanIndex: index,
-                            errorMessage: message
-                        )
-                    )
-                    failures.append(ScanFailure(fileName: file.fileName, message: message))
+                if case .missingTranscript = extractionError {
+                    continue
                 }
+
+                let message = extractionError.localizedDescription
+                failures.append(ScanFailure(fileName: file.fileName, message: message))
             } catch {
                 let message = error.localizedDescription
-                recordings.append(
-                    RecordingItem(
-                        source: file,
-                        transcript: nil,
-                        status: .failed,
-                        scanIndex: index,
-                        errorMessage: message
-                    )
-                )
                 failures.append(ScanFailure(fileName: file.fileName, message: message))
             }
         }
@@ -78,16 +54,24 @@ public struct SearchTranscriptsUseCase: Sendable {
         query: String,
         sort: RecordingSortOption
     ) -> [RecordingItem] {
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedQuery = normalizedSearchText(query)
 
         let filtered: [RecordingItem]
         if normalizedQuery.isEmpty {
             filtered = recordings
         } else {
-            filtered = recordings.filter { $0.searchText.contains(normalizedQuery) }
+            filtered = recordings.filter {
+                normalizedSearchText($0.transcript?.text ?? "").contains(normalizedQuery)
+            }
         }
 
         return sortRecordings(filtered, by: sort)
+    }
+
+    private func normalizedSearchText(_ text: String) -> String {
+        text
+            .folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func sortRecordings(_ recordings: [RecordingItem], by sort: RecordingSortOption) -> [RecordingItem] {

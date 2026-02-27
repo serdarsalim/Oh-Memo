@@ -24,9 +24,9 @@ struct VoiceMemoTranscriptsApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Transcript Manager") {
             RootView(model: model)
-                .frame(minWidth: 1100, minHeight: 700)
+                .frame(minWidth: 1260, minHeight: 700)
         }
         .windowResizability(.contentMinSize)
     }

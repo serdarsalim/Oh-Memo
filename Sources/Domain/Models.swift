@@ -122,14 +122,14 @@ public struct ScanResult: Sendable {
     }
 
     public var readyCount: Int {
-        recordings.filter { $0.status == .ready }.count
+        recordings.count
     }
 
     public var missingCount: Int {
-        recordings.filter { $0.status == .missing }.count
+        0
     }
 
     public var failedCount: Int {
-        recordings.filter { $0.status == .failed }.count
+        failures.count
     }
 }
