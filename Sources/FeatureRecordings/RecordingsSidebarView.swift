@@ -8,18 +8,18 @@ public struct RecordingsSidebarView: View {
     @Binding private var searchQuery: String
     @Binding private var selectedRecordingID: String?
     private let recordings: [RecordingItem]
-    private let descriptionForRecordingID: (String) -> String
+    private let descriptionsByRecordingID: [String: String]
 
     public init(
         searchQuery: Binding<String>,
         selectedRecordingID: Binding<String?>,
         recordings: [RecordingItem],
-        descriptionForRecordingID: @escaping (String) -> String
+        descriptionsByRecordingID: [String: String]
     ) {
         _searchQuery = searchQuery
         _selectedRecordingID = selectedRecordingID
         self.recordings = recordings
-        self.descriptionForRecordingID = descriptionForRecordingID
+        self.descriptionsByRecordingID = descriptionsByRecordingID
     }
 
     public var body: some View {
@@ -56,7 +56,7 @@ public struct RecordingsSidebarView: View {
                 List(recordings, selection: $selectedRecordingID) { item in
                     RecordingRowView(
                         item: item,
-                        description: descriptionForRecordingID(item.id)
+                        description: descriptionsByRecordingID[item.id] ?? ""
                     )
                         .tag(item.id)
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
