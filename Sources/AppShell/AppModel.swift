@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
+import Darwin
 #endif
 
 @MainActor
@@ -43,6 +44,12 @@ final class AppModel: ObservableObject {
 
     private var securityScopedURL: URL?
     private var transientMessageTask: Task<Void, Never>?
+    private var autoRescanDebounceTask: Task<Void, Never>?
+    private var pendingAutoRescan = false
+#if os(macOS)
+    private var folderWatchSource: DispatchSourceFileSystemObject?
+    private var folderWatchFileDescriptor: CInt = -1
+#endif
     private static let appearanceModeKey = "voiceMemo.appearanceMode"
 
     init(
@@ -67,6 +74,17 @@ final class AppModel: ObservableObject {
     }
 
     deinit {
+        autoRescanDebounceTask?.cancel()
+        transientMessageTask?.cancel()
+#if os(macOS)
+        if let source = folderWatchSource {
+            folderWatchSource = nil
+            source.cancel()
+        } else if folderWatchFileDescriptor >= 0 {
+            close(folderWatchFileDescriptor)
+            folderWatchFileDescriptor = -1
+        }
+#endif
         securityScopedURL?.stopAccessingSecurityScopedResource()
     }
 
@@ -211,6 +229,8 @@ final class AppModel: ObservableObject {
     }
 
     private func setFolder(_ folder: URL) {
+        stopWatchingFolder()
+
         if let current = securityScopedURL {
             current.stopAccessingSecurityScopedResource()
             securityScopedURL = nil
@@ -219,6 +239,7 @@ final class AppModel: ObservableObject {
         _ = folder.startAccessingSecurityScopedResource()
         securityScopedURL = folder
         folderURL = folder
+        startWatchingFolder(folder)
     }
 
     private func scanFolder() {
@@ -226,7 +247,13 @@ final class AppModel: ObservableObject {
             return
         }
 
+        if isScanning {
+            pendingAutoRescan = true
+            return
+        }
+
         isScanning = true
+        pendingAutoRescan = false
         progressText = "Scanning..."
         progressFraction = nil
         failures = []
@@ -258,6 +285,11 @@ final class AppModel: ObservableObject {
             }
 
             isScanning = false
+
+            if pendingAutoRescan {
+                pendingAutoRescan = false
+                scanFolder()
+            }
         }
     }
 
@@ -287,6 +319,66 @@ final class AppModel: ObservableObject {
             self.transientMessage = nil
             self.transientMessageTask = nil
         }
+    }
+
+    private func scheduleAutoRescan() {
+        autoRescanDebounceTask?.cancel()
+        autoRescanDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.runAutoRescanIfNeeded()
+        }
+    }
+
+    private func runAutoRescanIfNeeded() async {
+        guard folderURL != nil else { return }
+        if isScanning {
+            pendingAutoRescan = true
+            return
+        }
+        scanFolder()
+    }
+
+    private func startWatchingFolder(_ folder: URL) {
+#if os(macOS)
+        let fileDescriptor = open(folder.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else {
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .rename, .delete, .attrib, .extend, .link, .revoke],
+            queue: .main
+        )
+
+        source.setEventHandler { [weak self] in
+            self?.scheduleAutoRescan()
+        }
+        source.setCancelHandler { [weak self] in
+            close(fileDescriptor)
+            self?.folderWatchFileDescriptor = -1
+        }
+
+        folderWatchSource = source
+        folderWatchFileDescriptor = fileDescriptor
+        source.resume()
+#endif
+    }
+
+    private func stopWatchingFolder() {
+#if os(macOS)
+        autoRescanDebounceTask?.cancel()
+        autoRescanDebounceTask = nil
+
+        if let source = folderWatchSource {
+            folderWatchSource = nil
+            source.cancel()
+        } else if folderWatchFileDescriptor >= 0 {
+            close(folderWatchFileDescriptor)
+            folderWatchFileDescriptor = -1
+        }
+#endif
     }
 
     private func saveAppearanceMode() {

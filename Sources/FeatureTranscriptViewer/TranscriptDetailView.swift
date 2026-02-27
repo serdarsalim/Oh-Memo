@@ -47,6 +47,21 @@ public struct TranscriptDetailView: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.title3.weight(.semibold))
 
+                    Button(action: onToggleDetails) {
+                        Image(systemName: "sidebar.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(isDetailsVisible ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(isDetailsVisible ? "Hide Details" : "Show Details")
+                    .accessibilityLabel(isDetailsVisible ? "Hide Details" : "Show Details")
+                }
+                HStack(spacing: 12) {
+                    Label(Self.dateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
                     Button {
                         onCopyTranscript(recording)
                         copiedRecordingID = recording.id
@@ -58,24 +73,11 @@ public struct TranscriptDetailView: View {
                         }
                     } label: {
                         Image(systemName: copiedRecordingID == recording.id ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 30, height: 30)
-                            .background(
-                                Circle()
-                                    .fill(copiedRecordingID == recording.id ? Color.green.opacity(0.2) : Color.secondary.opacity(0.15))
-                            )
+                            .font(.system(size: 12, weight: .semibold))
                     }
                     .buttonStyle(.plain)
                     .help(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
                     .accessibilityLabel(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
-                }
-                HStack(spacing: 12) {
-                    Label(Self.dateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
-                    Button(action: onToggleDetails) {
-                        Label(isDetailsVisible ? "Hide Details" : "Show Details", systemImage: "sidebar.right")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.borderless)
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
