@@ -121,8 +121,12 @@ public struct ScanResult: Sendable {
         self.failures = failures
     }
 
+    public var totalCount: Int {
+        recordings.count + failures.count
+    }
+
     public var readyCount: Int {
-        recordings.count
+        max(totalCount - failedCount, 0)
     }
 
     public var missingCount: Int {

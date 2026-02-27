@@ -24,21 +24,21 @@ public struct RecordingsSidebarView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
 #if os(macOS)
-                ActivatingPlainTextField(text: $searchQuery, placeholder: "Search")
-                    .frame(height: 30)
+                ActivatingPlainTextField(text: $searchQuery, placeholder: "")
+                    .frame(height: 34)
 #else
-                TextField("Search", text: $searchQuery)
+                TextField("", text: $searchQuery)
                     .textFieldStyle(.plain)
 #endif
             }
-            .frame(minHeight: 44)
-            .padding(10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(
-                Rectangle()
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(.white)
             )
             .padding([.top, .horizontal], 10)
@@ -160,7 +160,7 @@ private struct ActivatingPlainTextField: NSViewRepresentable {
         textField.isSelectable = true
         textField.isBordered = false
         textField.drawsBackground = false
-        textField.focusRingType = .default
+        textField.focusRingType = .none
         textField.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         textField.lineBreakMode = .byTruncatingTail
         return textField

@@ -70,7 +70,9 @@ struct RootView: View {
                         TranscriptDetailView(
                             recording: model.selectedRecording,
                             descriptionTextForRecordingID: model.description(for:),
-                            onDescriptionChange: model.setDescription(_:for:),
+                            onDescriptionChange: { recordingID, description in
+                                model.setDescription(description, for: recordingID)
+                            },
                             onCopyTranscript: { _ in model.copyCurrentTranscript() },
                             isDetailsVisible: isDetailsVisible,
                             onToggleDetails: toggleDetailsVisibility
@@ -94,6 +96,14 @@ struct RootView: View {
                     summary: model.scanSummary,
                     isBusy: model.isScanning,
                     folderName: model.folderName,
+                    leadingView: AnyView(
+                        Picker("Sort", selection: $model.sortOption) {
+                            ForEach(RecordingSortOption.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    ),
                     trailingView: AnyView(AppearanceFooterToggle(selection: $model.appearanceMode)),
                     onOpenFolder: model.openCurrentFolderInFinder,
                     onChangeFolder: model.chooseFolder,
@@ -104,16 +114,6 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Picker("Sort", selection: $model.sortOption) {
-                        ForEach(RecordingSortOption.allCases) { option in
-                            Text(option.rawValue).tag(option)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-            }
         }
     }
 

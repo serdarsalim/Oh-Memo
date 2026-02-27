@@ -5,6 +5,7 @@ public struct ExportActionBar: View {
     private let summary: ScanResult?
     private let isBusy: Bool
     private let folderName: String
+    private let leadingView: AnyView?
     private let trailingView: AnyView?
     private let onOpenFolder: () -> Void
     private let onChangeFolder: () -> Void
@@ -16,6 +17,7 @@ public struct ExportActionBar: View {
         summary: ScanResult?,
         isBusy: Bool,
         folderName: String,
+        leadingView: AnyView? = nil,
         trailingView: AnyView? = nil,
         onOpenFolder: @escaping () -> Void,
         onChangeFolder: @escaping () -> Void,
@@ -26,6 +28,7 @@ public struct ExportActionBar: View {
         self.summary = summary
         self.isBusy = isBusy
         self.folderName = folderName
+        self.leadingView = leadingView
         self.trailingView = trailingView
         self.onOpenFolder = onOpenFolder
         self.onChangeFolder = onChangeFolder
@@ -36,10 +39,26 @@ public struct ExportActionBar: View {
 
     public var body: some View {
         HStack(spacing: 10) {
-            Button("Rescan", action: onRescan)
+            if let leadingView {
+                leadingView
+            }
+
+            Button(action: onRescan) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .help("Rescan")
                 .disabled(isBusy)
 
-            Button("Export All", action: onExportText)
+            Button(action: onExportText) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .help("Export All")
                 .disabled(isBusy)
 
             Button(action: onOpenFolder) {
@@ -63,7 +82,7 @@ public struct ExportActionBar: View {
 
             if let summary {
                 HStack(spacing: 8) {
-                    SummaryPill(label: "Total", value: summary.recordings.count, color: .secondary)
+                    SummaryPill(label: "Total", value: summary.totalCount, color: .secondary)
                     SummaryPill(label: "Ready", value: summary.readyCount, color: .green)
                     if summary.failedCount > 0 {
                         Button(action: onShowErrors) {
