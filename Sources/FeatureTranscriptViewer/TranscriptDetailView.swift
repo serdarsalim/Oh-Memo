@@ -46,6 +46,36 @@ public struct TranscriptDetailView: View {
                     TextField("Add description", text: descriptionBinding(for: recording))
                         .textFieldStyle(.roundedBorder)
                         .font(.title3.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+
+                    Label(Self.inlineDateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(Self.dateFormatter.string(from: recording.source.effectiveDate))
+
+                    Button {
+                        onCopyTranscript(recording)
+                        copiedRecordingID = recording.id
+                        Task {
+                            try? await Task.sleep(nanoseconds: 1_200_000_000)
+                            if copiedRecordingID == recording.id {
+                                copiedRecordingID = nil
+                            }
+                        }
+                    } label: {
+                        Image(systemName: copiedRecordingID == recording.id ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(copiedRecordingID == recording.id ? Color.green.opacity(0.2) : Color.secondary.opacity(0.15))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
+                    .accessibilityLabel(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
 
                     Button(action: onToggleDetails) {
                         Image(systemName: "sidebar.right")
@@ -60,27 +90,6 @@ public struct TranscriptDetailView: View {
                     .help(isDetailsVisible ? "Hide Details" : "Show Details")
                     .accessibilityLabel(isDetailsVisible ? "Hide Details" : "Show Details")
                 }
-                HStack(spacing: 12) {
-                    Label(Self.dateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
-                    Button {
-                        onCopyTranscript(recording)
-                        copiedRecordingID = recording.id
-                        Task {
-                            try? await Task.sleep(nanoseconds: 1_200_000_000)
-                            if copiedRecordingID == recording.id {
-                                copiedRecordingID = nil
-                            }
-                        }
-                    } label: {
-                        Image(systemName: copiedRecordingID == recording.id ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .help(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
-                    .accessibilityLabel(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
-                }
-                .font(.callout)
-                .foregroundStyle(.secondary)
             }
 
             Divider()
@@ -118,6 +127,13 @@ public struct TranscriptDetailView: View {
         let formatter = DateFormatter()
         formatter.dateStyle = .long
         formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    private static let inlineDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
         return formatter
     }()
 }
