@@ -9,6 +9,7 @@ public struct TranscriptDetailView: View {
     private let onCopyTranscript: (RecordingItem) -> Void
     private let isDetailsVisible: Bool
     private let onToggleDetails: () -> Void
+    private let maxContentWidth: CGFloat = 800
     @State private var descriptionsByRecordingID: [String: String] = [:]
     @State private var copiedRecordingID: String?
 
@@ -95,7 +96,7 @@ public struct TranscriptDetailView: View {
             Divider()
 
             if let transcript = recording.transcript {
-                SelectableTranscriptTextView(text: transcript.text)
+                SelectableTranscriptTextView(text: formattedTranscriptForDisplay(transcript.text))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ContentUnavailableView(
@@ -108,6 +109,7 @@ public struct TranscriptDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(18)
+        .frame(maxWidth: maxContentWidth, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.white)
@@ -120,6 +122,20 @@ public struct TranscriptDetailView: View {
         Binding(
             get: { descriptionsByRecordingID[recording.id] ?? "" },
             set: { descriptionsByRecordingID[recording.id] = $0 }
+        )
+    }
+
+    private func formattedTranscriptForDisplay(_ rawText: String) -> String {
+        let normalized = rawText
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else { return rawText }
+
+        return normalized.replacingOccurrences(
+            of: #"([.!?])\s+"#,
+            with: "$1\n",
+            options: .regularExpression
         )
     }
 
