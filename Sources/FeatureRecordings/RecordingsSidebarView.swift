@@ -30,6 +30,7 @@ public struct RecordingsSidebarView: View {
                     .fill(.white)
             )
             .padding([.top, .horizontal], 10)
+            .padding(.bottom, 8)
 
             if recordings.isEmpty {
                 ContentUnavailableView(
@@ -46,10 +47,54 @@ public struct RecordingsSidebarView: View {
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 }
                 .listStyle(.plain)
+                .onMoveCommand(perform: handleMoveCommand)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.regularMaterial)
+    }
+
+    private func handleMoveCommand(_ direction: MoveCommandDirection) {
+        guard !recordings.isEmpty else { return }
+
+        switch direction {
+        case .up:
+            selectPreviousRecording()
+        case .down:
+            selectNextRecording()
+        default:
+            break
+        }
+    }
+
+    private func selectPreviousRecording() {
+        guard !recordings.isEmpty else { return }
+
+        guard
+            let selectedRecordingID,
+            let selectedIndex = recordings.firstIndex(where: { $0.id == selectedRecordingID })
+        else {
+            self.selectedRecordingID = recordings.last?.id
+            return
+        }
+
+        let previousIndex = max(selectedIndex - 1, 0)
+        self.selectedRecordingID = recordings[previousIndex].id
+    }
+
+    private func selectNextRecording() {
+        guard !recordings.isEmpty else { return }
+
+        guard
+            let selectedRecordingID,
+            let selectedIndex = recordings.firstIndex(where: { $0.id == selectedRecordingID })
+        else {
+            self.selectedRecordingID = recordings.first?.id
+            return
+        }
+
+        let nextIndex = min(selectedIndex + 1, recordings.count - 1)
+        self.selectedRecordingID = recordings[nextIndex].id
     }
 }
 

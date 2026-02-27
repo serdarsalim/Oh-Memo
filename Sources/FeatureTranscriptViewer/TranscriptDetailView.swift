@@ -1,13 +1,27 @@
 import Domain
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct TranscriptDetailView: View {
     private let recording: RecordingItem?
-    private let activeQuery: String
+    private let onCopyTranscript: (RecordingItem) -> Void
+    private let isDetailsVisible: Bool
+    private let onToggleDetails: () -> Void
+    @State private var descriptionsByRecordingID: [String: String] = [:]
+    @State private var copiedRecordingID: String?
 
-    public init(recording: RecordingItem?, activeQuery: String) {
+    public init(
+        recording: RecordingItem?,
+        onCopyTranscript: @escaping (RecordingItem) -> Void,
+        isDetailsVisible: Bool,
+        onToggleDetails: @escaping () -> Void
+    ) {
         self.recording = recording
-        self.activeQuery = activeQuery
+        self.onCopyTranscript = onCopyTranscript
+        self.isDetailsVisible = isDetailsVisible
+        self.onToggleDetails = onToggleDetails
     }
 
     public var body: some View {
@@ -28,13 +42,40 @@ public struct TranscriptDetailView: View {
     private func content(for recording: RecordingItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(recording.source.fileName)
-                    .font(.title3.weight(.semibold))
+                HStack(spacing: 10) {
+                    TextField("Add description", text: descriptionBinding(for: recording))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.title3.weight(.semibold))
+
+                    Button {
+                        onCopyTranscript(recording)
+                        copiedRecordingID = recording.id
+                        Task {
+                            try? await Task.sleep(nanoseconds: 1_200_000_000)
+                            if copiedRecordingID == recording.id {
+                                copiedRecordingID = nil
+                            }
+                        }
+                    } label: {
+                        Image(systemName: copiedRecordingID == recording.id ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(copiedRecordingID == recording.id ? Color.green.opacity(0.2) : Color.secondary.opacity(0.15))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
+                    .accessibilityLabel(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
+                }
                 HStack(spacing: 12) {
                     Label(Self.dateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
-                    if let locale = recording.transcript?.localeIdentifier {
-                        Label(locale, systemImage: "globe")
+                    Button(action: onToggleDetails) {
+                        Label(isDetailsVisible ? "Hide Details" : "Show Details", systemImage: "sidebar.right")
+                            .font(.caption.weight(.semibold))
                     }
+                    .buttonStyle(.borderless)
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -43,33 +84,32 @@ public struct TranscriptDetailView: View {
             Divider()
 
             if let transcript = recording.transcript {
-                ScrollView {
-                    Text(transcript.text)
-                        .font(.system(size: 15, weight: .regular, design: .rounded))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .scrollContentBackground(.hidden)
-
-                if !activeQuery.isEmpty {
-                    Text("Filtering by content query: \"\(activeQuery)\"")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                SelectableTranscriptTextView(text: transcript.text)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ContentUnavailableView(
                     recording.status == .failed ? "Extraction Failed" : "No Transcript",
                     systemImage: recording.status == .failed ? "exclamationmark.triangle" : "nosign",
                     description: Text(recording.errorMessage ?? "No transcript data available for this file.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThickMaterial)
+                .fill(Color.white)
         )
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func descriptionBinding(for recording: RecordingItem) -> Binding<String> {
+        Binding(
+            get: { descriptionsByRecordingID[recording.id] ?? "" },
+            set: { descriptionsByRecordingID[recording.id] = $0 }
+        )
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -95,14 +135,9 @@ public struct RecordingInspectorView: View {
 
                 keyValue("Filename", recording.source.fileName)
                 keyValue("Status", recording.status.rawValue)
-                keyValue("Path", recording.source.fileURL.path)
-                keyValue("Recorded", Self.dateFormatter.string(from: recording.source.effectiveDate))
 
                 if let transcript = recording.transcript {
                     keyValue("Characters", "\(transcript.text.count)")
-                    if let locale = transcript.localeIdentifier {
-                        keyValue("Locale", locale)
-                    }
                 }
 
                 Spacer()
@@ -129,10 +164,44 @@ public struct RecordingInspectorView: View {
         }
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
 }
+
+#if os(macOS)
+private struct SelectableTranscriptTextView: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.usesFindBar = true
+        textView.usesAdaptiveColorMappingForDarkAppearance = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.autoresizingMask = [.width]
+        textView.font = NSFont.systemFont(ofSize: 15, weight: .regular)
+        textView.string = text
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+}
+#endif

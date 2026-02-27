@@ -4,6 +4,9 @@ import Foundation
 import Platform
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -39,6 +42,7 @@ final class AppModel: ObservableObject {
     private let defaults: UserDefaults
 
     private var securityScopedURL: URL?
+    private var transientMessageTask: Task<Void, Never>?
     private static let appearanceModeKey = "voiceMemo.appearanceMode"
 
     init(
@@ -109,31 +113,41 @@ final class AppModel: ObservableObject {
         scanFolder()
     }
 
+    func openCurrentFolderInFinder() {
+        guard let folderURL else {
+            showTransientMessage("No folder selected.")
+            return
+        }
+#if os(macOS)
+        NSWorkspace.shared.open(folderURL)
+#endif
+    }
+
     func copyCurrentTranscript() {
         guard let selected = selectedRecording, let text = selected.transcript?.text, !text.isEmpty else {
-            transientMessage = "No transcript selected to copy."
+            showTransientMessage("No transcript selected to copy.")
             return
         }
 
         clipboard.setString(text)
-        transientMessage = "Copied current transcript"
+        showTransientMessage("Copied current transcript")
     }
 
     func copyAllTranscripts() {
         let merged = exportUseCase.mergedText(for: allRecordings)
         guard !merged.isEmpty else {
-            transientMessage = "No transcript content to copy"
+            showTransientMessage("No transcript content to copy")
             return
         }
 
         clipboard.setString(merged)
-        transientMessage = "Copied all transcripts"
+        showTransientMessage("Copied all transcripts")
     }
 
     func exportText() {
         let merged = exportUseCase.mergedText(for: allRecordings)
         guard let data = merged.data(using: .utf8), !data.isEmpty else {
-            transientMessage = "No transcript content to export"
+            showTransientMessage("No transcript content to export")
             return
         }
 
@@ -143,7 +157,7 @@ final class AppModel: ObservableObject {
                 suggestedFileName: "voice-memo-transcripts.txt",
                 contentType: .plainText
             )
-            transientMessage = "Exported TXT"
+            showTransientMessage("Exported TXT")
         } catch {
             errorBanner = "Export failed: \(error.localizedDescription)"
         }
@@ -153,7 +167,7 @@ final class AppModel: ObservableObject {
         do {
             let data = try exportUseCase.mergedJSON(for: allRecordings)
             guard !data.isEmpty else {
-                transientMessage = "No transcript content to export"
+                showTransientMessage("No transcript content to export")
                 return
             }
 
@@ -162,7 +176,7 @@ final class AppModel: ObservableObject {
                 suggestedFileName: "voice-memo-transcripts.json",
                 contentType: .json
             )
-            transientMessage = "Exported JSON"
+            showTransientMessage("Exported JSON")
         } catch {
             errorBanner = "Export failed: \(error.localizedDescription)"
         }
@@ -176,6 +190,8 @@ final class AppModel: ObservableObject {
     }
 
     func dismissMessage() {
+        transientMessageTask?.cancel()
+        transientMessageTask = nil
         transientMessage = nil
     }
 
@@ -255,6 +271,21 @@ final class AppModel: ObservableObject {
         if let selectedRecordingID,
            !visibleRecordings.contains(where: { $0.id == selectedRecordingID }) {
             self.selectedRecordingID = visibleRecordings.first?.id
+        }
+    }
+
+    private func showTransientMessage(_ message: String, autoDismissDelayNanoseconds: UInt64 = 1_000_000_000) {
+        transientMessageTask?.cancel()
+        transientMessage = message
+
+        transientMessageTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: autoDismissDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            guard self.transientMessage == message else { return }
+
+            self.transientMessage = nil
+            self.transientMessageTask = nil
         }
     }
 

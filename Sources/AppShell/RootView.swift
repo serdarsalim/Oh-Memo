@@ -163,8 +163,8 @@ struct RootView: View {
             ]
         case .light:
             return [
-                Color(red: 0.95, green: 0.97, blue: 1.0),
-                Color(red: 0.90, green: 0.93, blue: 0.99)
+                Color(red: 0.97, green: 0.97, blue: 0.97),
+                Color(red: 0.94, green: 0.94, blue: 0.94)
             ]
         @unknown default:
             return [Color(.windowBackgroundColor), Color(.underPageBackgroundColor)]
