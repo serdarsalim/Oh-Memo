@@ -2,6 +2,7 @@ import Domain
 import SwiftUI
 #if os(macOS)
 import AppKit
+import AVFoundation
 #endif
 
 public struct TranscriptDetailView: View {
@@ -10,6 +11,7 @@ public struct TranscriptDetailView: View {
     private let isDetailsVisible: Bool
     private let onToggleDetails: () -> Void
     private let maxContentWidth: CGFloat = 800
+    @StateObject private var audioPlayer = InlineAudioPlayer()
     @State private var descriptionsByRecordingID: [String: String] = [:]
     @State private var copiedRecordingID: String?
 
@@ -38,6 +40,12 @@ public struct TranscriptDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: recording?.id, initial: true) { _, _ in
+            configureAudioPlayerForCurrentRecording()
+        }
+        .onDisappear {
+            audioPlayer.stopAndReset()
+        }
     }
 
     private func content(for recording: RecordingItem) -> some View {
@@ -91,6 +99,41 @@ public struct TranscriptDetailView: View {
                     .help(isDetailsVisible ? "Hide Details" : "Show Details")
                     .accessibilityLabel(isDetailsVisible ? "Hide Details" : "Show Details")
                 }
+
+                HStack(spacing: 10) {
+                    Button(action: audioPlayer.togglePlayPause) {
+                        Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(Color.secondary.opacity(0.15))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!audioPlayer.canPlay)
+
+                    Slider(
+                        value: Binding(
+                            get: { audioPlayer.currentTime },
+                            set: { audioPlayer.seek(to: $0) }
+                        ),
+                        in: 0...max(audioPlayer.duration, 1),
+                        onEditingChanged: { isEditing in
+                            if isEditing {
+                                audioPlayer.pauseProgressUpdatesForSeeking()
+                            } else {
+                                audioPlayer.resumeProgressUpdatesAfterSeeking()
+                            }
+                        }
+                    )
+                    .disabled(!audioPlayer.canPlay)
+
+                    Text(audioPlayer.playbackTimeLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 92, alignment: .trailing)
+                }
             }
 
             Divider()
@@ -137,6 +180,14 @@ public struct TranscriptDetailView: View {
             with: "$1\n",
             options: .regularExpression
         )
+    }
+
+    private func configureAudioPlayerForCurrentRecording() {
+        guard let recording else {
+            audioPlayer.stopAndReset()
+            return
+        }
+        audioPlayer.load(url: recording.source.fileURL)
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -201,6 +252,136 @@ public struct RecordingInspectorView: View {
 }
 
 #if os(macOS)
+@MainActor
+private final class InlineAudioPlayer: ObservableObject {
+    @Published var isPlaying = false
+    @Published var currentTime: TimeInterval = 0
+    @Published var duration: TimeInterval = 0
+
+    private var audioPlayer: AVAudioPlayer?
+    private var loadedURL: URL?
+    private var progressTask: Task<Void, Never>?
+
+    var canPlay: Bool {
+        audioPlayer != nil && duration > 0
+    }
+
+    var playbackTimeLabel: String {
+        "\(format(seconds: currentTime)) / \(format(seconds: duration))"
+    }
+
+    func load(url: URL) {
+        guard loadedURL != url else {
+            return
+        }
+
+        stopAndReset()
+
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+
+            audioPlayer = player
+            loadedURL = url
+            duration = max(player.duration, 0)
+            currentTime = 0
+            isPlaying = false
+        } catch {
+            audioPlayer = nil
+            loadedURL = url
+            duration = 0
+            currentTime = 0
+            isPlaying = false
+        }
+    }
+
+    func togglePlayPause() {
+        guard let player = audioPlayer else { return }
+
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+            stopProgressUpdates()
+            return
+        }
+
+        if player.currentTime >= player.duration {
+            player.currentTime = 0
+            currentTime = 0
+        }
+
+        if player.play() {
+            isPlaying = true
+            startProgressUpdates()
+        }
+    }
+
+    func seek(to seconds: TimeInterval) {
+        guard let player = audioPlayer else { return }
+        let clamped = max(0, min(seconds, duration))
+        player.currentTime = clamped
+        currentTime = clamped
+    }
+
+    func pauseProgressUpdatesForSeeking() {
+        stopProgressUpdates()
+    }
+
+    func resumeProgressUpdatesAfterSeeking() {
+        if isPlaying {
+            startProgressUpdates()
+        }
+    }
+
+    func stopAndReset() {
+        stopProgressUpdates()
+        audioPlayer?.stop()
+        audioPlayer = nil
+        loadedURL = nil
+        isPlaying = false
+        currentTime = 0
+        duration = 0
+    }
+
+    private func startProgressUpdates() {
+        stopProgressUpdates()
+        progressTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                self.refreshProgress()
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
+    private func stopProgressUpdates() {
+        progressTask?.cancel()
+        progressTask = nil
+    }
+
+    private func refreshProgress() {
+        guard let player = audioPlayer else { return }
+        currentTime = player.currentTime
+        duration = max(player.duration, 0)
+
+        if !player.isPlaying {
+            if currentTime >= max(duration - 0.05, 0) {
+                currentTime = duration
+            }
+            isPlaying = false
+            stopProgressUpdates()
+        }
+    }
+
+    private func format(seconds: TimeInterval) -> String {
+        guard seconds.isFinite else { return "00:00" }
+        let wholeSeconds = Int(max(0, seconds))
+        let minutes = wholeSeconds / 60
+        let remainder = wholeSeconds % 60
+        return String(format: "%02d:%02d", minutes, remainder)
+    }
+}
+
 private struct SelectableTranscriptTextView: NSViewRepresentable {
     let text: String
 
