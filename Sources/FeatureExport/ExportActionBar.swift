@@ -10,8 +10,8 @@ public struct ExportActionBar: View {
     private let onOpenFolder: () -> Void
     private let onChangeFolder: () -> Void
     private let onRescan: () -> Void
+    private let onCopyAll: () -> Void
     private let onExportText: () -> Void
-    private let onShowErrors: () -> Void
 
     public init(
         summary: ScanResult?,
@@ -22,8 +22,8 @@ public struct ExportActionBar: View {
         onOpenFolder: @escaping () -> Void,
         onChangeFolder: @escaping () -> Void,
         onRescan: @escaping () -> Void,
-        onExportText: @escaping () -> Void,
-        onShowErrors: @escaping () -> Void
+        onCopyAll: @escaping () -> Void,
+        onExportText: @escaping () -> Void
     ) {
         self.summary = summary
         self.isBusy = isBusy
@@ -33,8 +33,8 @@ public struct ExportActionBar: View {
         self.onOpenFolder = onOpenFolder
         self.onChangeFolder = onChangeFolder
         self.onRescan = onRescan
+        self.onCopyAll = onCopyAll
         self.onExportText = onExportText
-        self.onShowErrors = onShowErrors
     }
 
     public var body: some View {
@@ -52,14 +52,17 @@ public struct ExportActionBar: View {
             .help("Rescan")
                 .disabled(isBusy)
 
-            Button(action: onExportText) {
+            Menu {
+                Button("Copy All to Clipboard", action: onCopyAll)
+                Button("Download as TXT", action: onExportText)
+            } label: {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .help("Export All")
-                .disabled(isBusy)
+            .disabled(isBusy)
 
             Button(action: onOpenFolder) {
                 Image(systemName: "folder")
@@ -78,20 +81,11 @@ public struct ExportActionBar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            Spacer()
-
             if let summary {
-                HStack(spacing: 8) {
-                    SummaryPill(label: "Total", value: summary.totalCount, color: .secondary)
-                    SummaryPill(label: "Ready", value: summary.readyCount, color: .green)
-                    if summary.failedCount > 0 {
-                        Button(action: onShowErrors) {
-                            SummaryPill(label: "Failed", value: summary.failedCount, color: .red)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                SummaryPill(label: "Total", value: summary.readyCount, color: .green)
             }
+
+            Spacer()
 
             if let trailingView {
                 trailingView

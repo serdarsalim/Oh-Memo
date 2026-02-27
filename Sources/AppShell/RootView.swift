@@ -33,6 +33,13 @@ struct RootView: View {
         .sheet(isPresented: $model.isShowingFailures) {
             FailureListSheet(failures: model.failures)
         }
+        .sheet(isPresented: $model.isShowingAISettings) {
+            AISettingsSheet(
+                keyMask: model.openAIAPIKeyMask,
+                hasSavedKey: model.hasOpenAIAPIKey,
+                onSave: model.saveOpenAIAPIKey
+            )
+        }
         .onAppear {
             model.onAppear()
             initializeDetailsVisibilityIfNeeded()
@@ -84,7 +91,19 @@ struct RootView: View {
 
                         if isDetailsVisible {
                             Divider()
-                            RecordingInspectorView(recording: model.selectedRecording)
+                            AIAssistantSidebarView(
+                                recording: model.selectedRecording,
+                                visibleSections: model.aiVisibleSections,
+                                report: model.selectedAIReport,
+                                isAnalyzing: model.aiIsAnalyzing,
+                                errorMessage: model.aiAnalysisError,
+                                hasAPIKey: model.hasOpenAIAPIKey,
+                                onAnalyze: { model.analyzeSelectedTranscript(force: false) },
+                                onRegenerate: { model.analyzeSelectedTranscript(force: true) },
+                                onCopy: model.copySelectedAIReport,
+                                onToggleSection: model.toggleAISection,
+                                onOpenSettings: { model.isShowingAISettings = true }
+                            )
                                 .frame(width: detailsColumnWidth)
                                 .frame(maxHeight: .infinity)
                         }
@@ -107,12 +126,17 @@ struct RootView: View {
                         }
                         .pickerStyle(.menu)
                     ),
-                    trailingView: AnyView(AppearanceFooterToggle(selection: $model.appearanceMode)),
+                    trailingView: AnyView(
+                        FooterControls(
+                            appearanceMode: $model.appearanceMode,
+                            onOpenSettings: { model.isShowingAISettings = true }
+                        )
+                    ),
                     onOpenFolder: model.openCurrentFolderInFinder,
                     onChangeFolder: model.chooseFolder,
                     onRescan: model.rescan,
-                    onExportText: model.exportText,
-                    onShowErrors: model.showFailures
+                    onCopyAll: model.copyAllTranscripts,
+                    onExportText: model.exportText
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -223,6 +247,69 @@ private struct AppearanceFooterToggle: View {
         }
         .padding(3)
         .background(.ultraThinMaterial, in: Capsule())
+    }
+}
+
+private struct FooterControls: View {
+    @Binding var appearanceMode: AppearanceMode
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AppearanceFooterToggle(selection: $appearanceMode)
+
+            Button(action: onOpenSettings) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 26, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("AI Settings")
+            .padding(3)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+}
+
+private struct AISettingsSheet: View {
+    let keyMask: String
+    let hasSavedKey: Bool
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftKey: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("AI Settings")
+                .font(.title3.weight(.semibold))
+
+            Text("OpenAI API Key")
+                .font(.headline)
+            Text(hasSavedKey ? "Saved key: \(keyMask)" : "No key saved")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            SecureField("sk-...", text: $draftKey)
+                .textFieldStyle(.roundedBorder)
+
+            Text("Paste a new key to save. Leave empty and click Save to remove.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                Button("Save") {
+                    onSave(draftKey)
+                    draftKey = ""
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
     }
 }
 

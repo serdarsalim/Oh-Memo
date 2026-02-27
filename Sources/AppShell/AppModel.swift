@@ -4,10 +4,35 @@ import Foundation
 import Platform
 import SwiftUI
 import UniformTypeIdentifiers
+import CryptoKit
 #if os(macOS)
 import AppKit
 import Darwin
 #endif
+
+enum AIReportSection: String, CaseIterable, Identifiable, Hashable {
+    case actionItems
+    case summary
+    case sentiment
+    case score
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .actionItems: return "Action Items"
+        case .summary: return "Summary"
+        case .sentiment: return "Sentiment"
+        case .score: return "Score"
+        }
+    }
+}
+
+struct CachedAITranscriptReport: Equatable {
+    let report: AITranscriptReport
+    let transcriptDigest: String
+    let analyzedAt: Date
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -33,6 +58,13 @@ final class AppModel: ObservableObject {
     @Published var appearanceMode: AppearanceMode {
         didSet { saveAppearanceMode() }
     }
+    @Published var isShowingAISettings = false
+    @Published var aiVisibleSections: Set<AIReportSection> = Set(AIReportSection.allCases)
+    @Published private(set) var aiIsAnalyzing = false
+    @Published private(set) var aiAnalysisError: String?
+    @Published private(set) var aiReportsByRecordingID: [String: CachedAITranscriptReport] = [:]
+    @Published private(set) var hasOpenAIAPIKey = false
+    @Published private(set) var openAIAPIKeyMask = ""
 
     private let scanUseCase: ScanRecordingsUseCase
     private let searchUseCase: SearchTranscriptsUseCase
@@ -41,6 +73,8 @@ final class AppModel: ObservableObject {
     private let folderPicker: FolderPickerClient
     private let clipboard: ClipboardClient
     private let saveClient: FileSaveClient
+    private let keychain: KeychainClient
+    private let transcriptAnalyzer: OpenAITranscriptAnalyzer
     private let defaults: UserDefaults
 
     private var securityScopedURL: URL?
@@ -53,6 +87,7 @@ final class AppModel: ObservableObject {
 #endif
     private static let appearanceModeKey = "voiceMemo.appearanceMode"
     private static let descriptionsKey = "voiceMemo.recordingDescriptions.v1"
+    private static let openAIAPIKeyAccount = "openai_api_key"
 
     init(
         scanUseCase: ScanRecordingsUseCase,
@@ -62,6 +97,8 @@ final class AppModel: ObservableObject {
         folderPicker: FolderPickerClient,
         clipboard: ClipboardClient,
         saveClient: FileSaveClient,
+        keychain: KeychainClient = KeychainClient(),
+        transcriptAnalyzer: OpenAITranscriptAnalyzer = OpenAITranscriptAnalyzer(),
         defaults: UserDefaults = .standard
     ) {
         self.defaults = defaults
@@ -74,6 +111,9 @@ final class AppModel: ObservableObject {
         self.folderPicker = folderPicker
         self.clipboard = clipboard
         self.saveClient = saveClient
+        self.keychain = keychain
+        self.transcriptAnalyzer = transcriptAnalyzer
+        refreshOpenAIAPIKeyState()
     }
 
     deinit {
@@ -224,6 +264,11 @@ final class AppModel: ObservableObject {
         descriptionsByRecordingID[recordingID] ?? ""
     }
 
+    var selectedAIReport: CachedAITranscriptReport? {
+        guard let recordingID = selectedRecordingID else { return nil }
+        return aiReportsByRecordingID[recordingID]
+    }
+
     func setDescription(_ description: String, for recordingID: String) {
         let isEmpty = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let previous = descriptionsByRecordingID[recordingID] ?? ""
@@ -237,6 +282,86 @@ final class AppModel: ObservableObject {
             descriptionsByRecordingID[recordingID] = description
         }
         saveRecordingDescriptions()
+    }
+
+    func toggleAISection(_ section: AIReportSection) {
+        if aiVisibleSections.contains(section) {
+            aiVisibleSections.remove(section)
+        } else {
+            aiVisibleSections.insert(section)
+        }
+    }
+
+    func saveOpenAIAPIKey(_ key: String) {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            keychain.delete(account: Self.openAIAPIKeyAccount)
+            refreshOpenAIAPIKeyState()
+            showTransientMessage("Removed OpenAI API key")
+            return
+        }
+
+        do {
+            try keychain.write(trimmed, account: Self.openAIAPIKeyAccount)
+            refreshOpenAIAPIKeyState()
+            showTransientMessage("Saved OpenAI API key")
+        } catch {
+            errorBanner = "Could not save API key: \(error.localizedDescription)"
+        }
+    }
+
+    func analyzeSelectedTranscript(force: Bool = false) {
+        guard let recording = selectedRecording else {
+            aiAnalysisError = "Select a transcript first."
+            return
+        }
+        guard let transcript = recording.transcript?.text, !transcript.isEmpty else {
+            aiAnalysisError = "Selected recording has no transcript text."
+            return
+        }
+        guard let apiKey = keychain.read(account: Self.openAIAPIKeyAccount), !apiKey.isEmpty else {
+            aiAnalysisError = AIAnalysisError.missingAPIKey.localizedDescription
+            isShowingAISettings = true
+            return
+        }
+
+        let digest = digestForTranscript(transcript)
+        if !force,
+           let cached = aiReportsByRecordingID[recording.id],
+           cached.transcriptDigest == digest
+        {
+            aiAnalysisError = nil
+            return
+        }
+
+        aiIsAnalyzing = true
+        aiAnalysisError = nil
+
+        Task {
+            do {
+                let report = try await transcriptAnalyzer.analyze(transcript: transcript, apiKey: apiKey)
+                let cached = CachedAITranscriptReport(
+                    report: report,
+                    transcriptDigest: digest,
+                    analyzedAt: Date()
+                )
+                aiReportsByRecordingID[recording.id] = cached
+            } catch {
+                aiAnalysisError = error.localizedDescription
+            }
+
+            aiIsAnalyzing = false
+        }
+    }
+
+    func copySelectedAIReport() {
+        guard let report = selectedAIReport?.report else {
+            showTransientMessage("No AI report to copy")
+            return
+        }
+
+        clipboard.setString(format(report: report))
+        showTransientMessage("Copied AI report")
     }
 
     private func restoreSavedFolderIfAvailable() {
@@ -409,6 +534,47 @@ final class AppModel: ObservableObject {
 
     private func saveRecordingDescriptions() {
         defaults.set(descriptionsByRecordingID, forKey: Self.descriptionsKey)
+    }
+
+    private func refreshOpenAIAPIKeyState() {
+        guard let key = keychain.read(account: Self.openAIAPIKeyAccount), !key.isEmpty else {
+            hasOpenAIAPIKey = false
+            openAIAPIKeyMask = "Not set"
+            return
+        }
+
+        hasOpenAIAPIKey = true
+        let suffix = String(key.suffix(4))
+        openAIAPIKeyMask = "••••\(suffix)"
+    }
+
+    private func digestForTranscript(_ text: String) -> String {
+        let digest = SHA256.hash(data: Data(text.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func format(report: AITranscriptReport) -> String {
+        let actionItems = report.actionItems.map { "• \($0)" }.joined(separator: "\n")
+        let strengths = report.strengths.map { "• \($0)" }.joined(separator: "\n")
+        let improvements = report.improvements.map { "• \($0)" }.joined(separator: "\n")
+
+        return """
+        Summary
+        \(report.summary)
+
+        Action Items
+        \(actionItems)
+
+        Sentiment
+        \(report.sentiment)
+
+        Score: \(report.score)/10
+        What went well
+        \(strengths)
+
+        What to improve
+        \(improvements)
+        """
     }
 
     private static func loadAppearanceMode(defaults: UserDefaults) -> AppearanceMode {

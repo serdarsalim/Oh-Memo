@@ -1,0 +1,152 @@
+import Foundation
+
+struct AITranscriptReport: Codable, Equatable, Sendable {
+    let summary: String
+    let actionItems: [String]
+    let sentiment: String
+    let score: Int
+    let strengths: [String]
+    let improvements: [String]
+}
+
+struct OpenAITranscriptAnalyzer {
+    private let session: URLSession
+
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    func analyze(transcript: String, apiKey: String) async throws -> AITranscriptReport {
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+            throw AIAnalysisError.invalidRequest
+        }
+
+        let systemPrompt = """
+        You are an assistant that analyzes phone call transcripts.
+        Return strict JSON with this exact schema:
+        {
+          \"summary\": string,
+          \"actionItems\": string[],
+          \"sentiment\": string,
+          \"score\": integer,
+          \"strengths\": string[],
+          \"improvements\": string[]
+        }
+        Rules:
+        - score must be integer 0-10
+        - Keep summary under 120 words
+        - actionItems max 6 items
+        - strengths max 4 items
+        - improvements max 4 items
+        - Do not include markdown fences
+        """
+
+        let payload = ChatCompletionsRequest(
+            model: "gpt-4o-mini",
+            messages: [
+                .init(role: "system", content: systemPrompt),
+                .init(role: "user", content: "Transcript:\n\(transcript)")
+            ],
+            temperature: 0.2,
+            responseFormat: .init(type: "json_object")
+        )
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIAnalysisError.invalidResponse
+        }
+
+        guard (200 ... 299).contains(http.statusCode) else {
+            if let apiError = try? JSONDecoder().decode(OpenAIAPIErrorResponse.self, from: data) {
+                throw AIAnalysisError.api(apiError.error.message)
+            }
+            throw AIAnalysisError.api("Request failed with status \(http.statusCode)")
+        }
+
+        let decoded = try JSONDecoder().decode(ChatCompletionsResponse.self, from: data)
+        guard let content = decoded.choices.first?.message.content,
+              let jsonData = content.data(using: .utf8)
+        else {
+            throw AIAnalysisError.invalidResponse
+        }
+
+        do {
+            return try JSONDecoder().decode(AITranscriptReport.self, from: jsonData)
+        } catch {
+            throw AIAnalysisError.invalidResponse
+        }
+    }
+}
+
+enum AIAnalysisError: LocalizedError {
+    case missingAPIKey
+    case invalidRequest
+    case invalidResponse
+    case api(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey:
+            return "OpenAI API key is missing. Add it from settings."
+        case .invalidRequest:
+            return "Could not build AI request."
+        case .invalidResponse:
+            return "AI returned an unexpected response."
+        case let .api(message):
+            return message
+        }
+    }
+}
+
+private struct ChatCompletionsRequest: Encodable {
+    let model: String
+    let messages: [Message]
+    let temperature: Double
+    let responseFormat: ResponseFormat
+
+    struct Message: Encodable {
+        let role: String
+        let content: String
+    }
+
+    struct ResponseFormat: Encodable {
+        let type: String
+
+        enum CodingKeys: String, CodingKey {
+            case type
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case temperature
+        case responseFormat = "response_format"
+    }
+}
+
+private struct ChatCompletionsResponse: Decodable {
+    let choices: [Choice]
+
+    struct Choice: Decodable {
+        let message: Message
+    }
+
+    struct Message: Decodable {
+        let content: String
+    }
+}
+
+private struct OpenAIAPIErrorResponse: Decodable {
+    let error: OpenAIAPIError
+
+    struct OpenAIAPIError: Decodable {
+        let message: String
+    }
+}
