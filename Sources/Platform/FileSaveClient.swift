@@ -13,6 +13,9 @@ public struct FileSaveClient {
         panel.canCreateDirectories = true
 
         let response = panel.runModal()
+#if os(macOS)
+        NSApp.activate(ignoringOtherApps: true)
+#endif
         guard response == .OK, let destinationURL = panel.url else {
             return nil
         }

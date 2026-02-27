@@ -1,5 +1,8 @@
 import Domain
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct RecordingsSidebarView: View {
     @Binding private var searchQuery: String
@@ -21,8 +24,12 @@ public struct RecordingsSidebarView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
+#if os(macOS)
+                ActivatingPlainTextField(text: $searchQuery, placeholder: "Search")
+#else
                 TextField("Search", text: $searchQuery)
                     .textFieldStyle(.plain)
+#endif
             }
             .padding(10)
             .background(
@@ -121,3 +128,62 @@ private struct RecordingRowView: View {
         return formatter
     }()
 }
+
+#if os(macOS)
+private struct ActivatingPlainTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> ActivatingNSTextField {
+        let textField = ActivatingNSTextField()
+        textField.delegate = context.coordinator
+        textField.placeholderString = placeholder
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.focusRingType = .default
+        textField.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        textField.lineBreakMode = .byTruncatingTail
+        return textField
+    }
+
+    func updateNSView(_ nsView: ActivatingNSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        private let parent: ActivatingPlainTextField
+
+        init(_ parent: ActivatingPlainTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+        }
+    }
+}
+
+private final class ActivatingNSTextField: NSTextField {
+    override func mouseDown(with event: NSEvent) {
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+        super.mouseDown(with: event)
+        window?.makeFirstResponder(currentEditor() ?? self)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+        return super.becomeFirstResponder()
+    }
+}
+#endif

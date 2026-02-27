@@ -15,6 +15,9 @@ public struct FolderPickerClient {
         panel.directoryURL = initialURL
 
         let response = panel.runModal()
+#if os(macOS)
+        NSApp.activate(ignoringOtherApps: true)
+#endif
         guard response == .OK else {
             return nil
         }

@@ -2,10 +2,16 @@ import Data
 import Domain
 import Platform
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 struct VoiceMemoTranscriptsApp: App {
     private let model: AppModel
+#if os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+#endif
 
     init() {
         let scanner = FileSystemRecordingScanner()
@@ -31,3 +37,16 @@ struct VoiceMemoTranscriptsApp: App {
         .windowResizability(.contentMinSize)
     }
 }
+
+#if os(macOS)
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.forEach { $0.makeKeyAndOrderFront(nil) }
+    }
+}
+#endif
