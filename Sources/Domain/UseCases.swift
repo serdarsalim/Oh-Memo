@@ -9,12 +9,32 @@ public struct ScanRecordingsUseCase: Sendable {
         self.extractor = extractor
     }
 
-    public func execute(folderURL: URL) async throws -> ScanResult {
+    public func execute(
+        folderURL: URL,
+        offset: Int = 0,
+        limit: Int? = nil
+    ) async throws -> ScanResult {
         let files = try await scanner.listRecordings(in: folderURL)
+        let safeOffset = max(offset, 0)
+        guard safeOffset < files.count else {
+            return ScanResult(recordings: [], failures: [])
+        }
+
+        let endIndex: Int
+        if let limit {
+            endIndex = min(safeOffset + max(limit, 0), files.count)
+        } else {
+            endIndex = files.count
+        }
+        guard safeOffset < endIndex else {
+            return ScanResult(recordings: [], failures: [])
+        }
+
+        let targetFiles = Array(files[safeOffset..<endIndex])
         var recordings: [RecordingItem] = []
         var failures: [ScanFailure] = []
 
-        for (index, file) in files.enumerated() {
+        for (index, file) in targetFiles.enumerated() {
             do {
                 let transcript = try await extractor.extractTranscript(from: file.fileURL)
                 guard !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -25,7 +45,7 @@ public struct ScanRecordingsUseCase: Sendable {
                         source: file,
                         transcript: transcript,
                         status: .ready,
-                        scanIndex: index,
+                        scanIndex: safeOffset + index,
                         errorMessage: nil
                     )
                 )

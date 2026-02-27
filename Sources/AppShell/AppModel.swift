@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
     private static let aiReportsKey = "voiceMemo.aiReports.v1"
     private static let openAIAPIKeyStorageKey = "voiceMemo.openAIApiKey.v1"
     private static let aiAnalysisPromptKey = "voiceMemo.aiAnalysisPrompt.v1"
+    private static let initialScanBatchSize = 15
 
     init(
         scanUseCase: ScanRecordingsUseCase,
@@ -418,18 +419,38 @@ final class AppModel: ObservableObject {
 
         Task {
             do {
-                let result = try await Task.detached(priority: .userInitiated) {
-                    try await useCase.execute(folderURL: folderToScan)
+                let initialResult = try await Task.detached(priority: .userInitiated) {
+                    try await useCase.execute(
+                        folderURL: folderToScan,
+                        offset: 0,
+                        limit: Self.initialScanBatchSize
+                    )
                 }.value
 
-                allRecordings = result.recordings
-                scanSummary = result
-                failures = result.failures
+                allRecordings = initialResult.recordings
+                scanSummary = initialResult
+                failures = initialResult.failures
                 refreshVisibleRecordings()
 
                 if selectedRecordingID == nil {
                     selectedRecordingID = visibleRecordings.first?.id
                 }
+
+                progressText = "Loading more transcripts..."
+                progressFraction = nil
+
+                let remainingResult = try await Task.detached(priority: .utility) {
+                    try await useCase.execute(
+                        folderURL: folderToScan,
+                        offset: Self.initialScanBatchSize
+                    )
+                }.value
+
+                let mergedResult = mergeScanResults(primary: initialResult, secondary: remainingResult)
+                allRecordings = mergedResult.recordings
+                scanSummary = mergedResult
+                failures = mergedResult.failures
+                refreshVisibleRecordings()
 
                 progressText = "Scan complete"
                 progressFraction = 1
@@ -446,6 +467,22 @@ final class AppModel: ObservableObject {
                 scanFolder()
             }
         }
+    }
+
+    private func mergeScanResults(primary: ScanResult, secondary: ScanResult) -> ScanResult {
+        var mergedRecordings: [RecordingItem] = []
+        var seenRecordingIDs = Set<String>()
+
+        for recording in primary.recordings + secondary.recordings {
+            if seenRecordingIDs.insert(recording.id).inserted {
+                mergedRecordings.append(recording)
+            }
+        }
+
+        return ScanResult(
+            recordings: mergedRecordings,
+            failures: primary.failures + secondary.failures
+        )
     }
 
     private func refreshVisibleRecordings() {
