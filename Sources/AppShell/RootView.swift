@@ -42,6 +42,14 @@ struct RootView: View {
                 onSave: model.saveOpenAIAPIKey
             )
         }
+        .sheet(isPresented: $model.isShowingAIPromptEditor) {
+            AIPromptEditorSheet(
+                prompt: model.aiAnalysisPrompt,
+                defaultPrompt: model.defaultAIAnalysisPrompt,
+                onSave: model.saveAIAnalysisPrompt,
+                onResetToDefault: model.resetAIAnalysisPromptToDefault
+            )
+        }
         .onAppear {
             model.onAppear()
         }
@@ -154,6 +162,7 @@ struct RootView: View {
             hasAPIKey: model.hasOpenAIAPIKey,
             onRegenerate: { model.analyzeSelectedTranscript(force: true) },
             onCopy: model.copySelectedAIReport,
+            onEditPrompt: { model.isShowingAIPromptEditor = true },
             onOpenSettings: { model.isShowingAISettings = true }
         )
         .padding(18)
@@ -361,6 +370,69 @@ private struct AISettingsSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+    }
+}
+
+private struct AIPromptEditorSheet: View {
+    let prompt: String
+    let defaultPrompt: String
+    let onSave: (String) -> Void
+    let onResetToDefault: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftPrompt: String
+
+    init(
+        prompt: String,
+        defaultPrompt: String,
+        onSave: @escaping (String) -> Void,
+        onResetToDefault: @escaping () -> Void
+    ) {
+        self.prompt = prompt
+        self.defaultPrompt = defaultPrompt
+        self.onSave = onSave
+        self.onResetToDefault = onResetToDefault
+        _draftPrompt = State(initialValue: prompt)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("AI Analysis Prompt")
+                .font(.title3.weight(.semibold))
+
+            Text("Customize how analysis is generated. Changes persist across sessions.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: $draftPrompt)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 280)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+
+            HStack {
+                Button("Reset Default") {
+                    draftPrompt = defaultPrompt
+                    onResetToDefault()
+                }
+
+                Spacer()
+
+                Button("Cancel") {
+                    dismiss()
+                }
+
+                Button("Save") {
+                    onSave(draftPrompt)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 760, height: 480)
     }
 }
 

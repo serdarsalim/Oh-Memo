@@ -9,6 +9,7 @@ struct AIAssistantSidebarView: View {
     let hasAPIKey: Bool
     let onRegenerate: () -> Void
     let onCopy: () -> Void
+    let onEditPrompt: () -> Void
     let onOpenSettings: () -> Void
 
     private let bodyFont: Font = .system(size: 17)
@@ -36,6 +37,15 @@ struct AIAssistantSidebarView: View {
                 .help("Copy AI report")
                 .accessibilityLabel("Copy AI report")
                 .disabled(report == nil)
+
+                Button(action: onEditPrompt) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("Edit analysis prompt")
+                .accessibilityLabel("Edit analysis prompt")
 
                 Button(action: onRegenerate) {
                     Image(systemName: "arrow.clockwise")
@@ -78,7 +88,7 @@ struct AIAssistantSidebarView: View {
                         ContentUnavailableView(
                             "No Analysis Yet",
                             systemImage: "sparkles",
-                            description: Text("Select a transcript and click Analyze.")
+                            description: Text("Switch to AI view to auto-analyze the selected transcript.")
                         )
                     }
                 }

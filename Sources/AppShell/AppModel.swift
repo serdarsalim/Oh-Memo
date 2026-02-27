@@ -41,11 +41,13 @@ final class AppModel: ObservableObject {
         didSet { saveAppearanceMode() }
     }
     @Published var isShowingAISettings = false
+    @Published var isShowingAIPromptEditor = false
     @Published private(set) var aiIsAnalyzing = false
     @Published private(set) var aiAnalysisError: String?
     @Published private(set) var aiReportsByRecordingID: [String: CachedAITranscriptReport] = [:]
     @Published private(set) var hasOpenAIAPIKey = false
     @Published private(set) var openAIAPIKeyMask = ""
+    @Published private(set) var aiAnalysisPrompt: String
 
     private let scanUseCase: ScanRecordingsUseCase
     private let searchUseCase: SearchTranscriptsUseCase
@@ -69,6 +71,7 @@ final class AppModel: ObservableObject {
     private static let descriptionsKey = "voiceMemo.recordingDescriptions.v1"
     private static let aiReportsKey = "voiceMemo.aiReports.v1"
     private static let openAIAPIKeyStorageKey = "voiceMemo.openAIApiKey.v1"
+    private static let aiAnalysisPromptKey = "voiceMemo.aiAnalysisPrompt.v1"
 
     init(
         scanUseCase: ScanRecordingsUseCase,
@@ -85,6 +88,7 @@ final class AppModel: ObservableObject {
         self.appearanceMode = Self.loadAppearanceMode(defaults: defaults)
         self.descriptionsByRecordingID = Self.loadRecordingDescriptions(defaults: defaults)
         self.aiReportsByRecordingID = Self.loadAIReports(defaults: defaults)
+        self.aiAnalysisPrompt = Self.loadAIAnalysisPrompt(defaults: defaults)
         self.scanUseCase = scanUseCase
         self.searchUseCase = searchUseCase
         self.exportUseCase = exportUseCase
@@ -129,6 +133,10 @@ final class AppModel: ObservableObject {
 
     var preferredColorScheme: ColorScheme? {
         appearanceMode.colorScheme
+    }
+
+    var defaultAIAnalysisPrompt: String {
+        OpenAITranscriptAnalyzer.defaultSystemPrompt
     }
 
     func onAppear() {
@@ -278,6 +286,24 @@ final class AppModel: ObservableObject {
         showTransientMessage("Saved OpenAI API key")
     }
 
+    func saveAIAnalysisPrompt(_ prompt: String) {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            resetAIAnalysisPromptToDefault()
+            return
+        }
+
+        aiAnalysisPrompt = prompt
+        defaults.set(prompt, forKey: Self.aiAnalysisPromptKey)
+        showTransientMessage("Saved AI prompt")
+    }
+
+    func resetAIAnalysisPromptToDefault() {
+        aiAnalysisPrompt = OpenAITranscriptAnalyzer.defaultSystemPrompt
+        defaults.removeObject(forKey: Self.aiAnalysisPromptKey)
+        showTransientMessage("Reset AI prompt to default")
+    }
+
     func analyzeSelectedTranscript(force: Bool = false) {
         guard let recording = selectedRecording else {
             aiAnalysisError = "Select a transcript first."
@@ -304,10 +330,17 @@ final class AppModel: ObservableObject {
 
         aiIsAnalyzing = true
         aiAnalysisError = nil
+        let promptForAnalysis = aiAnalysisPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? OpenAITranscriptAnalyzer.defaultSystemPrompt
+            : aiAnalysisPrompt
 
         Task {
             do {
-                let report = try await transcriptAnalyzer.analyze(transcript: transcript, apiKey: apiKey)
+                let report = try await transcriptAnalyzer.analyze(
+                    transcript: transcript,
+                    apiKey: apiKey,
+                    systemPrompt: promptForAnalysis
+                )
                 let cached = CachedAITranscriptReport(
                     report: report,
                     transcriptDigest: digest,
@@ -576,5 +609,12 @@ final class AppModel: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode([String: CachedAITranscriptReport].self, from: data)) ?? [:]
+    }
+
+    private static func loadAIAnalysisPrompt(defaults: UserDefaults) -> String {
+        let prompt = defaults.string(forKey: Self.aiAnalysisPromptKey) ?? OpenAITranscriptAnalyzer.defaultSystemPrompt
+        return prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? OpenAITranscriptAnalyzer.defaultSystemPrompt
+            : prompt
     }
 }

@@ -12,38 +12,42 @@ struct AITranscriptReport: Codable, Equatable, Sendable {
 struct OpenAITranscriptAnalyzer {
     private let session: URLSession
 
+    static let defaultSystemPrompt = """
+    You are an assistant that analyzes phone call transcripts.
+    Return strict JSON with this exact schema:
+    {
+      \"summary\": string,
+      \"actionItems\": string[],
+      \"sentiment\": string,
+      \"score\": integer,
+      \"strengths\": string[],
+      \"improvements\": string[]
+    }
+    Rules:
+    - score must be integer 0-10 representing likelihood that this lead will convert
+    - sentiment must be a short conversion label like \"high\", \"medium\", \"low\", \"positive\", \"neutral\", or \"negative\"
+    - Keep summary under 120 words
+    - actionItems max 6 items
+    - strengths max 4 items
+    - improvements max 4 items
+    - Do not include markdown fences
+    """
+
     init(session: URLSession = .shared) {
         self.session = session
     }
 
-    func analyze(transcript: String, apiKey: String) async throws -> AITranscriptReport {
+    func analyze(
+        transcript: String,
+        apiKey: String,
+        systemPrompt: String = OpenAITranscriptAnalyzer.defaultSystemPrompt
+    ) async throws -> AITranscriptReport {
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             throw AIAnalysisError.invalidRequest
         }
 
-        let systemPrompt = """
-        You are an assistant that analyzes phone call transcripts.
-        Return strict JSON with this exact schema:
-        {
-          \"summary\": string,
-          \"actionItems\": string[],
-          \"sentiment\": string,
-          \"score\": integer,
-          \"strengths\": string[],
-          \"improvements\": string[]
-        }
-        Rules:
-        - score must be integer 0-10 representing likelihood that this lead will convert
-        - sentiment must be a short conversion label like \"high\", \"medium\", \"low\", \"positive\", \"neutral\", or \"negative\"
-        - Keep summary under 120 words
-        - actionItems max 6 items
-        - strengths max 4 items
-        - improvements max 4 items
-        - Do not include markdown fences
-        """
-
         let payload = ChatCompletionsRequest(
-            model: "gpt-4o-mini",
+            model: "gpt-4.1-mini",
             messages: [
                 .init(role: "system", content: systemPrompt),
                 .init(role: "user", content: "Transcript:\n\(transcript)")
