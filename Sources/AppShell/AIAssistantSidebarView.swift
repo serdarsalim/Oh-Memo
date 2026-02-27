@@ -139,17 +139,20 @@ struct AIAssistantSidebarView: View {
                     .font(bodyFont)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(Array(bullets.enumerated()), id: \.offset) { _, item in
-                    Text("• \(item)")
-                        .font(bodyFont)
-                        .textSelection(.enabled)
-                }
+                Text(bulletedText(from: bullets))
+                    .font(bodyFont)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     private func clampedScore(_ score: Int) -> Int {
         max(0, min(score, 10))
+    }
+
+    private func bulletedText(from bullets: [String]) -> String {
+        bullets.map { "• \($0)" }.joined(separator: "\n")
     }
 
     private static let timeFormatter: DateFormatter = {
