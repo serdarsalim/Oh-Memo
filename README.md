@@ -1,54 +1,62 @@
-# Voice Memo Transcripts
+# Transcript Manager
 
-This repository now includes:
-1. The original transcript extractor script for Apple Voice Memos `.m4a` files.
-2. A modular macOS SwiftUI app scaffold that uses that script and provides content search, copy, and export.
+Transcript Manager is a macOS SwiftUI app for browsing Apple Voice Memos transcripts from `.m4a` recordings.
 
-## Original CLI Extractor
+It scans a user-selected Voice Memos folder, extracts transcript payloads from each file, and gives you a fast sidebar + detail workflow for searching, reading, copying, and exporting transcripts.
+
+## What This App Does
+
+- Loads a recordings folder using a persisted security-scoped bookmark.
+- Scans `.m4a` files and extracts transcript data via the bundled extractor script.
+- Watches the folder for file changes and auto-rescans when new recordings appear.
+- Shows a searchable/sortable recording list in the sidebar.
+- Displays transcript detail with:
+  - Editable recording description/title (persisted between app restarts)
+  - Inline audio playback (play/pause, seek slider, elapsed/total time)
+  - Copy transcript action
+- Prefers saved description text in the sidebar row title when available.
+- Exports merged transcripts as `.txt` or `.json`.
+- Shows extraction failures in a dedicated sheet.
+
+## Transcript Rendering
+
+The app tries to preserve Apple transcript formatting when available in the transcript payload.
+If the payload has no useful structure, it falls back to readable sentence/paragraph formatting.
+
+## Project Structure
+
+- `Sources/AppShell`: app composition, root view, app model/state
+- `Sources/Domain`: core models/protocols/use cases
+- `Sources/Data`: folder scanner + script transcript extraction + bookmark persistence
+- `Sources/Platform`: macOS wrappers (open panel, save panel, clipboard)
+- `Sources/FeatureRecordings`: sidebar/search/list UI
+- `Sources/FeatureTranscriptViewer`: transcript detail/player/inspector UI
+- `Sources/FeatureExport`: footer export/status action bar
+
+## Run
+
+```bash
+swift build
+swift run VoiceMemoTranscriptsApp
+```
+
+## Extractor CLI
+
+You can run the original extractor script directly:
 
 ```bash
 ./extract-apple-voice-memos-transcript [--text|--json|--raw] <filename>
 ```
 
-Voice Memos recordings are typically stored at:
-`~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings`
+The app uses the bundled copy at:
 
-## macOS App Scaffold
-
-The app is implemented as a Swift package with modular targets:
-
-- `AppShell`: app entry point and composition root.
-- `Domain`: models, protocols, use cases.
-- `Data`: folder scanning, bookmark persistence, script-backed transcript extraction.
-- `Platform`: macOS adapters (`NSOpenPanel`, clipboard, save panel).
-- `FeatureRecordings`: sidebar list and content search UI.
-- `FeatureTranscriptViewer`: transcript detail and inspector UI.
-- `FeatureExport`: copy/export action bar and scan summary.
-
-### Implemented UX
-
-- First-run folder selection (with persisted bookmark).
-- Scan/rescan `.m4a` files in selected folder.
-- Search by transcript content (not filename).
-- Sort by newest/oldest/longest/recently scanned.
-- Appearance mode picker: `System`, `Light`, `Dark` (persisted).
-- Copy current transcript.
-- Copy all transcripts.
-- Export `.txt` and `.json`.
-- Failed-file sheet with error details.
-
-## How to Run in Xcode
-
-1. Open this folder as a Swift package in Xcode.
-2. Select executable target `VoiceMemoTranscriptsApp`.
-3. Run the app.
-
-The extractor script is bundled at:
 `Sources/AppShell/Resources/extract-apple-voice-memos-transcript`
 
-The app also checks `VOICE_MEMO_EXTRACTOR_PATH` env var first. If needed, set it in your Xcode Run scheme to point to a script path on disk.
+## Typical Voice Memos Folder
 
-## Notes
+`~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings`
 
-- App Store-safe path handling is implemented with user-selected folder access instead of hardcoded Voice Memos container paths.
-- The UI is designed around transcript content search and date-based sort because Voice Memo filenames are opaque IDs.
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0.
+See [LICENSE](./LICENSE).
