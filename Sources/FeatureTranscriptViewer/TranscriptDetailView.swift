@@ -7,21 +7,28 @@ import AVFoundation
 
 public struct TranscriptDetailView: View {
     private let recording: RecordingItem?
+    private let descriptionTextForRecordingID: (String) -> String
+    private let onDescriptionChange: (String, String) -> Void
     private let onCopyTranscript: (RecordingItem) -> Void
     private let isDetailsVisible: Bool
     private let onToggleDetails: () -> Void
     private let maxContentWidth: CGFloat = 800
     @StateObject private var audioPlayer = InlineAudioPlayer()
-    @State private var descriptionsByRecordingID: [String: String] = [:]
     @State private var copiedRecordingID: String?
+    @State private var editingDescriptionRecordingID: String?
+    @FocusState private var focusedDescriptionRecordingID: String?
 
     public init(
         recording: RecordingItem?,
+        descriptionTextForRecordingID: @escaping (String) -> String,
+        onDescriptionChange: @escaping (String, String) -> Void,
         onCopyTranscript: @escaping (RecordingItem) -> Void,
         isDetailsVisible: Bool,
         onToggleDetails: @escaping () -> Void
     ) {
         self.recording = recording
+        self.descriptionTextForRecordingID = descriptionTextForRecordingID
+        self.onDescriptionChange = onDescriptionChange
         self.onCopyTranscript = onCopyTranscript
         self.isDetailsVisible = isDetailsVisible
         self.onToggleDetails = onToggleDetails
@@ -42,6 +49,13 @@ public struct TranscriptDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: recording?.id, initial: true) { _, _ in
             configureAudioPlayerForCurrentRecording()
+            editingDescriptionRecordingID = nil
+            focusedDescriptionRecordingID = nil
+        }
+        .onChange(of: focusedDescriptionRecordingID) { _, newValue in
+            if newValue == nil {
+                editingDescriptionRecordingID = nil
+            }
         }
         .onDisappear {
             audioPlayer.stopAndReset()
@@ -52,9 +66,8 @@ public struct TranscriptDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
-                    TextField("Add description", text: descriptionBinding(for: recording))
-                        .textFieldStyle(.roundedBorder)
-                        .font(.title3.weight(.semibold))
+                    descriptionFieldOrTitle(for: recording)
+                        .frame(height: 30)
                         .frame(maxWidth: .infinity)
 
                     Label(Self.inlineDateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
@@ -99,6 +112,7 @@ public struct TranscriptDetailView: View {
                     .help(isDetailsVisible ? "Hide Details" : "Show Details")
                     .accessibilityLabel(isDetailsVisible ? "Hide Details" : "Show Details")
                 }
+                .frame(minHeight: 44)
 
                 HStack(spacing: 10) {
                     Button(action: audioPlayer.togglePlayPause) {
@@ -139,7 +153,9 @@ public struct TranscriptDetailView: View {
             Divider()
 
             if let transcript = recording.transcript {
-                SelectableTranscriptTextView(text: formattedTranscriptForDisplay(transcript.text))
+                SelectableTranscriptTextView(
+                    attributedText: transcriptDisplayAttributedText(for: transcript)
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ContentUnavailableView(
@@ -163,23 +179,221 @@ public struct TranscriptDetailView: View {
 
     private func descriptionBinding(for recording: RecordingItem) -> Binding<String> {
         Binding(
-            get: { descriptionsByRecordingID[recording.id] ?? "" },
-            set: { descriptionsByRecordingID[recording.id] = $0 }
+            get: { descriptionTextForRecordingID(recording.id) },
+            set: { onDescriptionChange(recording.id, $0) }
         )
     }
 
-    private func formattedTranscriptForDisplay(_ rawText: String) -> String {
+    @ViewBuilder
+    private func descriptionFieldOrTitle(for recording: RecordingItem) -> some View {
+        let description = descriptionTextForRecordingID(recording.id)
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if editingDescriptionRecordingID == recording.id {
+            TextField("Add description", text: descriptionBinding(for: recording))
+                .textFieldStyle(.plain)
+                .font(.title3.weight(.semibold))
+                .focused($focusedDescriptionRecordingID, equals: recording.id)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        focusedDescriptionRecordingID = recording.id
+                    }
+                }
+                .onSubmit {
+                    endDescriptionEditing()
+                }
+        } else {
+            Button {
+                beginDescriptionEditing(for: recording.id)
+            } label: {
+                Text(trimmedDescription.isEmpty ? "Add description" : description)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(trimmedDescription.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func beginDescriptionEditing(for recordingID: String) {
+        editingDescriptionRecordingID = recordingID
+        DispatchQueue.main.async {
+            focusedDescriptionRecordingID = recordingID
+        }
+    }
+
+    private func endDescriptionEditing() {
+        focusedDescriptionRecordingID = nil
+        editingDescriptionRecordingID = nil
+    }
+
+    private func appleAttributedTranscript(from transcript: TranscriptData) -> NSAttributedString? {
+        guard let jsonPayload = transcript.jsonPayload, let payloadData = jsonPayload.data(using: .utf8) else {
+            return nil
+        }
+
+        guard
+            let jsonObject = try? JSONSerialization.jsonObject(with: payloadData),
+            let root = jsonObject as? [String: Any],
+            let attributedStringPayload = root["attributedString"]
+        else {
+            return nil
+        }
+
+        if let attributedDictionary = attributedStringPayload as? [String: Any],
+           let runs = attributedDictionary["runs"] as? [Any] {
+            return attributedStringFromRuns(runs)
+        }
+
+        if let runs = attributedStringPayload as? [Any] {
+            return attributedStringFromRuns(runs)
+        }
+
+        if let plainString = attributedStringPayload as? String {
+            return NSAttributedString(string: plainString)
+        }
+
+        return nil
+    }
+
+    private func transcriptDisplayAttributedText(for transcript: TranscriptData) -> NSAttributedString {
+        if let appleAttributed = appleAttributedTranscript(from: transcript),
+           hasMeaningfulTranscriptStructure(appleAttributed.string) {
+            return appleAttributed
+        }
+
+        let formatted = fallbackFormattedTranscript(transcript.text)
+        return NSAttributedString(string: formatted, attributes: baseTranscriptAttributes)
+    }
+
+    private func hasMeaningfulTranscriptStructure(_ text: String) -> Bool {
+        let lineBreakCount = text.reduce(into: 0) { count, character in
+            if character == "\n" {
+                count += 1
+            }
+        }
+        return lineBreakCount >= 3 || text.contains("\n\n")
+    }
+
+    private func fallbackFormattedTranscript(_ rawText: String) -> String {
         let normalized = rawText
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !normalized.isEmpty else { return rawText }
 
-        return normalized.replacingOccurrences(
+        let sentenceMarker = "<__sentence_break__>"
+        let marked = normalized.replacingOccurrences(
             of: #"([.!?])\s+"#,
-            with: "$1\n",
+            with: "$1\(sentenceMarker)",
             options: .regularExpression
         )
+
+        let sentenceChunks = marked
+            .components(separatedBy: sentenceMarker)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !sentenceChunks.isEmpty else { return normalized }
+
+        var paragraphs: [String] = []
+        var currentSentences: [String] = []
+        var currentLength = 0
+
+        for sentence in sentenceChunks {
+            let projectedLength = currentLength + sentence.count + (currentSentences.isEmpty ? 0 : 1)
+            if !currentSentences.isEmpty && (currentSentences.count >= 2 || projectedLength > 220) {
+                paragraphs.append(currentSentences.joined(separator: " "))
+                currentSentences = []
+                currentLength = 0
+            }
+
+            currentSentences.append(sentence)
+            currentLength += sentence.count + 1
+        }
+
+        if !currentSentences.isEmpty {
+            paragraphs.append(currentSentences.joined(separator: " "))
+        }
+
+        return paragraphs.joined(separator: "\n\n")
+    }
+
+    private func attributedStringFromRuns(_ runs: [Any]) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        var activeAttributes = baseTranscriptAttributes
+
+        for run in runs {
+            if let text = run as? String {
+                result.append(NSAttributedString(string: text, attributes: activeAttributes))
+                continue
+            }
+
+            if let attributes = run as? [String: Any] {
+                activeAttributes = baseTranscriptAttributes.merging(parsedTextAttributes(from: attributes)) { _, new in new }
+            }
+        }
+
+        if result.length == 0 {
+            return NSAttributedString(string: "")
+        }
+
+        return result
+    }
+
+    private func parsedTextAttributes(from rawAttributes: [String: Any]) -> [NSAttributedString.Key: Any] {
+        var attributes: [NSAttributedString.Key: Any] = [:]
+
+        if let underline = integerValue(forAnyOf: ["underlineStyle", "NSUnderline", "underline"], in: rawAttributes) {
+            attributes[.underlineStyle] = underline
+        }
+
+        if let strikethrough = integerValue(forAnyOf: ["strikethroughStyle", "NSStrikethrough", "strikethrough"], in: rawAttributes) {
+            attributes[.strikethroughStyle] = strikethrough
+        }
+
+        if let kern = doubleValue(forAnyOf: ["kern", "NSKern"], in: rawAttributes) {
+            attributes[.kern] = kern
+        }
+
+        if let baselineOffset = doubleValue(forAnyOf: ["baselineOffset", "NSBaselineOffset"], in: rawAttributes) {
+            attributes[.baselineOffset] = baselineOffset
+        }
+
+        return attributes
+    }
+
+    private func integerValue(forAnyOf keys: [String], in dictionary: [String: Any]) -> Int? {
+        for key in keys {
+            if let intValue = dictionary[key] as? Int {
+                return intValue
+            }
+            if let numberValue = dictionary[key] as? NSNumber {
+                return numberValue.intValue
+            }
+        }
+        return nil
+    }
+
+    private func doubleValue(forAnyOf keys: [String], in dictionary: [String: Any]) -> Double? {
+        for key in keys {
+            if let doubleValue = dictionary[key] as? Double {
+                return doubleValue
+            }
+            if let numberValue = dictionary[key] as? NSNumber {
+                return numberValue.doubleValue
+            }
+        }
+        return nil
+    }
+
+    private var baseTranscriptAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.systemFont(ofSize: 15, weight: .regular),
+            .foregroundColor: NSColor.labelColor
+        ]
     }
 
     private func configureAudioPlayerForCurrentRecording() {
@@ -383,7 +597,7 @@ private final class InlineAudioPlayer: ObservableObject {
 }
 
 private struct SelectableTranscriptTextView: NSViewRepresentable {
-    let text: String
+    let attributedText: NSAttributedString
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -396,7 +610,7 @@ private struct SelectableTranscriptTextView: NSViewRepresentable {
         let textView = NSTextView()
         textView.isEditable = false
         textView.isSelectable = true
-        textView.isRichText = false
+        textView.isRichText = true
         textView.importsGraphics = false
         textView.usesFindBar = true
         textView.usesAdaptiveColorMappingForDarkAppearance = true
@@ -406,7 +620,7 @@ private struct SelectableTranscriptTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.autoresizingMask = [.width]
         textView.font = NSFont.systemFont(ofSize: 15, weight: .regular)
-        textView.string = text
+        textView.textStorage?.setAttributedString(attributedText)
 
         scrollView.documentView = textView
         return scrollView
@@ -414,8 +628,8 @@ private struct SelectableTranscriptTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
+        if textView.attributedString() != attributedText {
+            textView.textStorage?.setAttributedString(attributedText)
         }
     }
 }

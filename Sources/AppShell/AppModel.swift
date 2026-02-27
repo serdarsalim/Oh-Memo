@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     @Published var selectedRecordingID: String?
     @Published var allRecordings: [RecordingItem] = []
     @Published var visibleRecordings: [RecordingItem] = []
+    @Published private(set) var descriptionsByRecordingID: [String: String]
     @Published var scanSummary: ScanResult?
     @Published var isScanning = false
     @Published var progressText = ""
@@ -51,6 +52,7 @@ final class AppModel: ObservableObject {
     private var folderWatchFileDescriptor: CInt = -1
 #endif
     private static let appearanceModeKey = "voiceMemo.appearanceMode"
+    private static let descriptionsKey = "voiceMemo.recordingDescriptions.v1"
 
     init(
         scanUseCase: ScanRecordingsUseCase,
@@ -64,6 +66,7 @@ final class AppModel: ObservableObject {
     ) {
         self.defaults = defaults
         self.appearanceMode = Self.loadAppearanceMode(defaults: defaults)
+        self.descriptionsByRecordingID = Self.loadRecordingDescriptions(defaults: defaults)
         self.scanUseCase = scanUseCase
         self.searchUseCase = searchUseCase
         self.exportUseCase = exportUseCase
@@ -215,6 +218,25 @@ final class AppModel: ObservableObject {
 
     func dismissError() {
         errorBanner = nil
+    }
+
+    func description(for recordingID: String) -> String {
+        descriptionsByRecordingID[recordingID] ?? ""
+    }
+
+    func setDescription(_ description: String, for recordingID: String) {
+        let isEmpty = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let previous = descriptionsByRecordingID[recordingID] ?? ""
+        let nextValue = isEmpty ? "" : description
+
+        guard previous != nextValue else { return }
+
+        if isEmpty {
+            descriptionsByRecordingID.removeValue(forKey: recordingID)
+        } else {
+            descriptionsByRecordingID[recordingID] = description
+        }
+        saveRecordingDescriptions()
     }
 
     private func restoreSavedFolderIfAvailable() {
@@ -385,6 +407,10 @@ final class AppModel: ObservableObject {
         defaults.set(appearanceMode.rawValue, forKey: Self.appearanceModeKey)
     }
 
+    private func saveRecordingDescriptions() {
+        defaults.set(descriptionsByRecordingID, forKey: Self.descriptionsKey)
+    }
+
     private static func loadAppearanceMode(defaults: UserDefaults) -> AppearanceMode {
         guard
             let rawValue = defaults.string(forKey: Self.appearanceModeKey),
@@ -393,5 +419,9 @@ final class AppModel: ObservableObject {
             return .system
         }
         return mode
+    }
+
+    private static func loadRecordingDescriptions(defaults: UserDefaults) -> [String: String] {
+        defaults.dictionary(forKey: Self.descriptionsKey) as? [String: String] ?? [:]
     }
 }

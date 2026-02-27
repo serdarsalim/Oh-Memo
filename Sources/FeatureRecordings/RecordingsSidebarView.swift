@@ -8,15 +8,18 @@ public struct RecordingsSidebarView: View {
     @Binding private var searchQuery: String
     @Binding private var selectedRecordingID: String?
     private let recordings: [RecordingItem]
+    private let descriptionForRecordingID: (String) -> String
 
     public init(
         searchQuery: Binding<String>,
         selectedRecordingID: Binding<String?>,
-        recordings: [RecordingItem]
+        recordings: [RecordingItem],
+        descriptionForRecordingID: @escaping (String) -> String
     ) {
         _searchQuery = searchQuery
         _selectedRecordingID = selectedRecordingID
         self.recordings = recordings
+        self.descriptionForRecordingID = descriptionForRecordingID
     }
 
     public var body: some View {
@@ -26,11 +29,13 @@ public struct RecordingsSidebarView: View {
                     .foregroundStyle(.secondary)
 #if os(macOS)
                 ActivatingPlainTextField(text: $searchQuery, placeholder: "Search")
+                    .frame(height: 30)
 #else
                 TextField("Search", text: $searchQuery)
                     .textFieldStyle(.plain)
 #endif
             }
+            .frame(minHeight: 44)
             .padding(10)
             .background(
                 Rectangle()
@@ -49,7 +54,10 @@ public struct RecordingsSidebarView: View {
                 .padding(16)
             } else {
                 List(recordings, selection: $selectedRecordingID) { item in
-                    RecordingRowView(item: item)
+                    RecordingRowView(
+                        item: item,
+                        description: descriptionForRecordingID(item.id)
+                    )
                         .tag(item.id)
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 }
@@ -107,10 +115,11 @@ public struct RecordingsSidebarView: View {
 
 private struct RecordingRowView: View {
     let item: RecordingItem
+    let description: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(item.snippet)
+            Text(primaryText)
                 .font(.system(size: 13, weight: .regular))
                 .lineLimit(2)
 
@@ -119,6 +128,11 @@ private struct RecordingRowView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+
+    private var primaryText: String {
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? item.snippet : trimmed
     }
 
     private static let dateFormatter: DateFormatter = {

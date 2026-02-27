@@ -59,7 +59,8 @@ struct RootView: View {
                     RecordingsSidebarView(
                         searchQuery: $model.searchQuery,
                         selectedRecordingID: $model.selectedRecordingID,
-                        recordings: model.visibleRecordings
+                        recordings: model.visibleRecordings,
+                        descriptionForRecordingID: model.description(for:)
                     )
                     .frame(width: sidebarWidth)
 
@@ -68,6 +69,8 @@ struct RootView: View {
                     HStack(spacing: 0) {
                         TranscriptDetailView(
                             recording: model.selectedRecording,
+                            descriptionTextForRecordingID: model.description(for:),
+                            onDescriptionChange: model.setDescription(_:for:),
                             onCopyTranscript: { _ in model.copyCurrentTranscript() },
                             isDetailsVisible: isDetailsVisible,
                             onToggleDetails: toggleDetailsVisibility
