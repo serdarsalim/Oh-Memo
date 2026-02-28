@@ -132,20 +132,32 @@ public struct SearchTranscriptsUseCase: Sendable {
 public struct ExportTranscriptsUseCase: Sendable {
     public init() {}
 
-    public func mergedText(for recordings: [RecordingItem]) -> String {
+    public func mergedText(
+        for recordings: [RecordingItem],
+        titleProvider: ((RecordingItem) -> String)? = nil
+    ) -> String {
         var sections: [String] = []
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
 
         for recording in recordings where recording.status == .ready {
-            let title = recording.source.fileName
-            let dateText = formatter.string(from: recording.source.effectiveDate)
-            let body = recording.transcript?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !body.isEmpty else { continue }
-            sections.append("Recording: \(title)\nDate: \(dateText)\n\n\(body)")
+            guard let section = sectionText(for: recording, titleProvider: titleProvider) else { continue }
+            sections.append(section)
         }
 
         return sections.joined(separator: "\n\n--------------------------------\n\n")
+    }
+
+    public func sectionText(
+        for recording: RecordingItem,
+        titleProvider: ((RecordingItem) -> String)? = nil
+    ) -> String? {
+        guard recording.status == .ready else { return nil }
+
+        let resolvedTitle = titleProvider?(recording).trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = resolvedTitle.isEmpty ? "Untitled Recording" : resolvedTitle
+        let dateText = makeISO8601DateFormatter().string(from: recording.source.effectiveDate)
+        let body = recording.transcript?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !body.isEmpty else { return nil }
+        return "Recording: \(title)\nDate: \(dateText)\n\n\(body)"
     }
 
     public func mergedJSON(for recordings: [RecordingItem]) throws -> Data {
@@ -177,5 +189,10 @@ public struct ExportTranscriptsUseCase: Sendable {
         }
 
         return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+    }
+    private func makeISO8601DateFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
     }
 }

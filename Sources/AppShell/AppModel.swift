@@ -48,6 +48,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var hasOpenAIAPIKey = false
     @Published private(set) var openAIAPIKeyMask = ""
     @Published private(set) var aiAnalysisPrompt: String
+    @Published var showArchivedRecordings: Bool {
+        didSet {
+            saveShowArchivedRecordings()
+            refreshVisibleRecordings()
+        }
+    }
+    @Published var includeArchivedInBulkExport: Bool {
+        didSet { saveIncludeArchivedInBulkExport() }
+    }
 
     private let scanUseCase: ScanRecordingsUseCase
     private let searchUseCase: SearchTranscriptsUseCase
@@ -72,7 +81,11 @@ final class AppModel: ObservableObject {
     private static let aiReportsKey = "voiceMemo.aiReports.v1"
     private static let openAIAPIKeyStorageKey = "voiceMemo.openAIApiKey.v1"
     private static let aiAnalysisPromptKey = "voiceMemo.aiAnalysisPrompt.v1"
+    private static let archivedRecordingIDsKey = "voiceMemo.archivedRecordingIDs.v1"
+    private static let showArchivedRecordingsKey = "voiceMemo.showArchivedRecordings.v1"
+    private static let includeArchivedInBulkExportKey = "voiceMemo.includeArchivedInBulkExport.v1"
     private static let initialScanBatchSize = 15
+    private var archivedRecordingIDs: Set<String>
 
     init(
         scanUseCase: ScanRecordingsUseCase,
@@ -90,6 +103,9 @@ final class AppModel: ObservableObject {
         self.descriptionsByRecordingID = Self.loadRecordingDescriptions(defaults: defaults)
         self.aiReportsByRecordingID = Self.loadAIReports(defaults: defaults)
         self.aiAnalysisPrompt = Self.loadAIAnalysisPrompt(defaults: defaults)
+        self.archivedRecordingIDs = Self.loadArchivedRecordingIDs(defaults: defaults)
+        self.showArchivedRecordings = Self.loadShowArchivedRecordings(defaults: defaults)
+        self.includeArchivedInBulkExport = Self.loadIncludeArchivedInBulkExport(defaults: defaults)
         self.scanUseCase = scanUseCase
         self.searchUseCase = searchUseCase
         self.exportUseCase = exportUseCase
@@ -174,17 +190,22 @@ final class AppModel: ObservableObject {
     }
 
     func copyCurrentTranscript() {
-        guard let selected = selectedRecording, let text = selected.transcript?.text, !text.isEmpty else {
+        guard let selected = selectedRecording else {
             showTransientMessage("No transcript selected to copy.")
             return
         }
 
-        clipboard.setString(text)
+        guard let section = exportUseCase.sectionText(for: selected, titleProvider: displayTitleForExport) else {
+            showTransientMessage("No transcript selected to copy.")
+            return
+        }
+
+        clipboard.setString(section)
         showTransientMessage("Copied current transcript")
     }
 
     func copyAllTranscripts() {
-        let merged = exportUseCase.mergedText(for: allRecordings)
+        let merged = exportUseCase.mergedText(for: recordingsForBulkExport(), titleProvider: displayTitleForExport)
         guard !merged.isEmpty else {
             showTransientMessage("No transcript content to copy")
             return
@@ -195,7 +216,7 @@ final class AppModel: ObservableObject {
     }
 
     func exportText() {
-        let merged = exportUseCase.mergedText(for: allRecordings)
+        let merged = exportUseCase.mergedText(for: recordingsForBulkExport(), titleProvider: displayTitleForExport)
         guard let data = merged.data(using: .utf8), !data.isEmpty else {
             showTransientMessage("No transcript content to export")
             return
@@ -215,7 +236,7 @@ final class AppModel: ObservableObject {
 
     func exportJSON() {
         do {
-            let data = try exportUseCase.mergedJSON(for: allRecordings)
+            let data = try exportUseCase.mergedJSON(for: recordingsForBulkExport())
             guard !data.isEmpty else {
                 showTransientMessage("No transcript content to export")
                 return
@@ -253,6 +274,27 @@ final class AppModel: ObservableObject {
         descriptionsByRecordingID[recordingID] ?? ""
     }
 
+    private func displayTitleForExport(_ recording: RecordingItem) -> String {
+        let descriptionText = description(for: recording.id).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !descriptionText.isEmpty {
+            return descriptionText
+        }
+
+        let voiceMemoTitle = recording.source.voiceMemoTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !voiceMemoTitle.isEmpty {
+            return voiceMemoTitle
+        }
+
+        return ""
+    }
+
+    private func recordingsForBulkExport() -> [RecordingItem] {
+        if includeArchivedInBulkExport {
+            return allRecordings
+        }
+        return allRecordings.filter { !archivedRecordingIDs.contains($0.id) }
+    }
+
     var selectedAIReport: CachedAITranscriptReport? {
         guard let recordingID = selectedRecordingID else { return nil }
         return aiReportsByRecordingID[recordingID]
@@ -271,6 +313,37 @@ final class AppModel: ObservableObject {
             descriptionsByRecordingID[recordingID] = description
         }
         saveRecordingDescriptions()
+    }
+
+    func isArchived(recordingID: String) -> Bool {
+        archivedRecordingIDs.contains(recordingID)
+    }
+
+    func archiveRecording(_ recordingID: String) {
+        guard archivedRecordingIDs.insert(recordingID).inserted else { return }
+        saveArchivedRecordingIDs()
+        refreshVisibleRecordings()
+        showTransientMessage("Archived transcript")
+    }
+
+    func unarchiveRecording(_ recordingID: String) {
+        guard archivedRecordingIDs.remove(recordingID) != nil else { return }
+        saveArchivedRecordingIDs()
+        refreshVisibleRecordings()
+        showTransientMessage("Unarchived transcript")
+    }
+
+    func toggleArchiveRecording(_ recordingID: String) {
+        if isArchived(recordingID: recordingID) {
+            unarchiveRecording(recordingID)
+        } else {
+            archiveRecording(recordingID)
+        }
+    }
+
+    func archiveSelectedRecording() {
+        guard let selectedRecordingID else { return }
+        archiveRecording(selectedRecordingID)
     }
 
     func saveOpenAIAPIKey(_ key: String) {
@@ -486,8 +559,12 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshVisibleRecordings() {
+        let baseRecordings = showArchivedRecordings
+            ? allRecordings
+            : allRecordings.filter { !archivedRecordingIDs.contains($0.id) }
+
         visibleRecordings = searchUseCase.execute(
-            recordings: allRecordings,
+            recordings: baseRecordings,
             query: searchQuery,
             sort: sortOption
         )
@@ -581,6 +658,18 @@ final class AppModel: ObservableObject {
         defaults.set(descriptionsByRecordingID, forKey: Self.descriptionsKey)
     }
 
+    private func saveArchivedRecordingIDs() {
+        defaults.set(Array(archivedRecordingIDs), forKey: Self.archivedRecordingIDsKey)
+    }
+
+    private func saveShowArchivedRecordings() {
+        defaults.set(showArchivedRecordings, forKey: Self.showArchivedRecordingsKey)
+    }
+
+    private func saveIncludeArchivedInBulkExport() {
+        defaults.set(includeArchivedInBulkExport, forKey: Self.includeArchivedInBulkExportKey)
+    }
+
     private func saveAIReports() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -653,5 +742,18 @@ final class AppModel: ObservableObject {
         return prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? OpenAITranscriptAnalyzer.defaultSystemPrompt
             : prompt
+    }
+
+    private static func loadArchivedRecordingIDs(defaults: UserDefaults) -> Set<String> {
+        let ids = defaults.stringArray(forKey: Self.archivedRecordingIDsKey) ?? []
+        return Set(ids)
+    }
+
+    private static func loadShowArchivedRecordings(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: Self.showArchivedRecordingsKey)
+    }
+
+    private static func loadIncludeArchivedInBulkExport(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: Self.includeArchivedInBulkExportKey)
     }
 }

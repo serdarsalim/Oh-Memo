@@ -39,6 +39,8 @@ struct RootView: View {
             AISettingsSheet(
                 keyMask: model.openAIAPIKeyMask,
                 hasSavedKey: model.hasOpenAIAPIKey,
+                showArchivedRecordings: $model.showArchivedRecordings,
+                includeArchivedInBulkExport: $model.includeArchivedInBulkExport,
                 onSave: model.saveOpenAIAPIKey
             )
         }
@@ -85,9 +87,12 @@ struct RootView: View {
                         selectedRecordingID: $model.selectedRecordingID,
                         recordings: model.visibleRecordings,
                         descriptionsByRecordingID: model.descriptionsByRecordingID,
+                        archivedRecordingIDs: Set(model.visibleRecordings.map(\.id).filter { model.isArchived(recordingID: $0) }),
                         onDescriptionChange: { recordingID, description in
                             model.setDescription(description, for: recordingID)
-                        }
+                        },
+                        onArchiveToggle: model.toggleArchiveRecording,
+                        onArchiveSelected: model.archiveSelectedRecording
                     )
                     .frame(width: sidebarWidth)
 
@@ -334,6 +339,8 @@ private struct FooterControls: View {
 private struct AISettingsSheet: View {
     let keyMask: String
     let hasSavedKey: Bool
+    @Binding var showArchivedRecordings: Bool
+    @Binding var includeArchivedInBulkExport: Bool
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var draftKey: String = ""
@@ -351,25 +358,52 @@ private struct AISettingsSheet: View {
 
             SecureField("sk-...", text: $draftKey)
                 .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    saveIfNeeded()
+                }
 
-            Text("Paste a new key to save. Leave empty and click Save to remove.")
+            Text("Paste a new key and close this window to save it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
+            Toggle("Show archived transcripts", isOn: $showArchivedRecordings)
+                .toggleStyle(.switch)
+            Text("When off, archived transcripts are hidden from the sidebar.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Include archived in Copy all / Export all", isOn: $includeArchivedInBulkExport)
+                .toggleStyle(.switch)
+            Text("Controls whether archived transcripts are included in bulk copy and export actions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             HStack {
+                if hasSavedKey {
+                    Button("Remove Key") {
+                        onSave("")
+                        draftKey = ""
+                    }
+                }
+
                 Spacer()
-                Button("Done") {
+                Button("Close") {
+                    saveIfNeeded()
                     dismiss()
                 }
-                Button("Save") {
-                    onSave(draftKey)
-                    draftKey = ""
-                }
-                .buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
         .frame(width: 420)
+    }
+
+    private func saveIfNeeded() {
+        let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        onSave(trimmed)
+        draftKey = ""
     }
 }
 

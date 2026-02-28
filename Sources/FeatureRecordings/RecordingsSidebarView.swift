@@ -9,20 +9,30 @@ public struct RecordingsSidebarView: View {
     @Binding private var selectedRecordingID: String?
     private let recordings: [RecordingItem]
     private let descriptionsByRecordingID: [String: String]
+    private let archivedRecordingIDs: Set<String>
     private let onDescriptionChange: (String, String) -> Void
+    private let onArchiveToggle: (String) -> Void
+    private let onArchiveSelected: () -> Void
+    @State private var editingRecordingID: String?
 
     public init(
         searchQuery: Binding<String>,
         selectedRecordingID: Binding<String?>,
         recordings: [RecordingItem],
         descriptionsByRecordingID: [String: String],
-        onDescriptionChange: @escaping (String, String) -> Void
+        archivedRecordingIDs: Set<String>,
+        onDescriptionChange: @escaping (String, String) -> Void,
+        onArchiveToggle: @escaping (String) -> Void,
+        onArchiveSelected: @escaping () -> Void
     ) {
         _searchQuery = searchQuery
         _selectedRecordingID = selectedRecordingID
         self.recordings = recordings
         self.descriptionsByRecordingID = descriptionsByRecordingID
+        self.archivedRecordingIDs = archivedRecordingIDs
         self.onDescriptionChange = onDescriptionChange
+        self.onArchiveToggle = onArchiveToggle
+        self.onArchiveSelected = onArchiveSelected
     }
 
     public var body: some View {
@@ -56,17 +66,50 @@ public struct RecordingsSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             } else {
-                List(recordings, selection: $selectedRecordingID) { item in
-                    RecordingRowView(
-                        item: item,
-                        description: descriptionsByRecordingID[item.id] ?? "",
-                        onDescriptionChange: { onDescriptionChange(item.id, $0) }
-                    )
-                        .tag(item.id)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                ScrollViewReader { proxy in
+                    List(recordings, selection: $selectedRecordingID) { item in
+                        RecordingRowView(
+                            item: item,
+                            isEditing: Binding(
+                                get: { editingRecordingID == item.id },
+                                set: { isEditing in
+                                    if isEditing {
+                                        editingRecordingID = item.id
+                                    } else if editingRecordingID == item.id {
+                                        editingRecordingID = nil
+                                    }
+                                }
+                            ),
+                            description: descriptionsByRecordingID[item.id] ?? "",
+                            onDescriptionChange: { onDescriptionChange(item.id, $0) }
+                        )
+                            .id(item.id)
+                            .tag(item.id)
+                            .contextMenu {
+                                Button(archivedRecordingIDs.contains(item.id) ? "Unarchive" : "Archive") {
+                                    onArchiveToggle(item.id)
+                                }
+                            }
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    }
+                    .listStyle(.plain)
+                    .onMoveCommand(perform: handleMoveCommand)
+#if os(macOS)
+                    .onDeleteCommand(perform: onArchiveSelected)
+                    .onCommand(#selector(NSResponder.insertNewline(_:)), perform: handleReturnCommand)
+#endif
+                    .onChange(of: recordings.map(\.id)) { oldIDs, newIDs in
+                        guard newIDs.count > oldIDs.count, let firstID = newIDs.first else { return }
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(firstID, anchor: .top)
+                        }
+                    }
                 }
-                .listStyle(.plain)
-                .onMoveCommand(perform: handleMoveCommand)
+            }
+        }
+        .onChange(of: selectedRecordingID) { _, newSelection in
+            if editingRecordingID != newSelection {
+                editingRecordingID = nil
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -115,14 +158,26 @@ public struct RecordingsSidebarView: View {
         let nextIndex = min(selectedIndex + 1, recordings.count - 1)
         self.selectedRecordingID = recordings[nextIndex].id
     }
+
+    private func handleReturnCommand() {
+        guard let selectedRecordingID else {
+            return
+        }
+
+        if editingRecordingID == selectedRecordingID {
+            editingRecordingID = nil
+        } else {
+            editingRecordingID = selectedRecordingID
+        }
+    }
 }
 
 private struct RecordingRowView: View {
     let item: RecordingItem
+    @Binding var isEditing: Bool
     let description: String
     let onDescriptionChange: (String) -> Void
 
-    @State private var isEditing = false
     @State private var draftDescription = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -161,6 +216,11 @@ private struct RecordingRowView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+        .onChange(of: isEditing) { _, editing in
+            if editing {
+                draftDescription = editableSeedText
+            }
+        }
     }
 
     private var primaryText: String {
