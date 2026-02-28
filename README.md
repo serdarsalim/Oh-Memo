@@ -1,6 +1,6 @@
-# Transcript Manager
+# Oh Memo
 
-Transcript Manager is a macOS app that helps you organize, search, and act on your Apple Voice Memos transcripts.
+Oh Memo is a macOS app that helps you organize, search, and act on your Apple Voice Memos transcripts.
 
 If Voice Memos feels too basic for serious follow-up work, this app gives you a focused workspace for transcript management.
 

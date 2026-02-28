@@ -9,7 +9,8 @@ APP_DIR="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-ICON_SOURCE="$ROOT_DIR/output/logo-concepts/transcriptmanager.png"
+ICON_SOURCE_PRIMARY="$ROOT_DIR/output/logo-concepts/transcriptmanager 2.png"
+ICON_SOURCE_FALLBACK="$ROOT_DIR/output/logo-concepts/transcriptmanager.png"
 ICONSET_DIR="$BUILD_DIR/AppIcon.iconset"
 ICON_ICNS_PATH="$RESOURCES_DIR/AppIcon.icns"
 BIN_PATH=""
@@ -40,7 +41,14 @@ cp "$ROOT_DIR/Sources/AppShell/Resources/extract-apple-voice-memos-transcript" \
 chmod +x "$RESOURCES_DIR/extract-apple-voice-memos-transcript"
 
 # Build an .icns app icon if a custom source is available.
-if [[ -f "$ICON_SOURCE" ]]; then
+ICON_SOURCE=""
+if [[ -f "$ICON_SOURCE_PRIMARY" ]]; then
+  ICON_SOURCE="$ICON_SOURCE_PRIMARY"
+elif [[ -f "$ICON_SOURCE_FALLBACK" ]]; then
+  ICON_SOURCE="$ICON_SOURCE_FALLBACK"
+fi
+
+if [[ -n "$ICON_SOURCE" ]]; then
   echo "Generating app icon from $ICON_SOURCE"
   rm -rf "$ICONSET_DIR"
   mkdir -p "$ICONSET_DIR"
@@ -89,7 +97,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleName</key>
-  <string>Transcript Manager</string>
+  <string>Oh Memo</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

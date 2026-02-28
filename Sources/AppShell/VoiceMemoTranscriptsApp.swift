@@ -30,7 +30,7 @@ struct VoiceMemoTranscriptsApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Transcript Manager") {
+        WindowGroup("Oh Memo") {
             RootView(model: model)
                 .frame(minWidth: 1260, minHeight: 700)
         }

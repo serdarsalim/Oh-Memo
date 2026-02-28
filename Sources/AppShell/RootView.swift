@@ -179,7 +179,7 @@ struct RootView: View {
     private var firstRunView: some View {
         VStack(spacing: 24) {
             VStack(spacing: 22) {
-                Text("Transcript Manager")
+                Text("Oh Memo")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
 
