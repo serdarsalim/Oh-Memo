@@ -9,6 +9,9 @@ public struct TranscriptDetailView: View {
     private let recording: RecordingItem?
     private let descriptionTextForRecordingID: (String) -> String
     private let onDescriptionChange: (String, String) -> Void
+    private let isTranscriptEdited: (String) -> Bool
+    private let onTranscriptChange: (String, String) -> Void
+    private let onRevertTranscript: (String) -> Void
     private let onCopyTranscript: (RecordingItem) -> Void
     private let maxContentWidth: CGFloat = 800
     @StateObject private var audioPlayer = InlineAudioPlayer()
@@ -21,11 +24,17 @@ public struct TranscriptDetailView: View {
         recording: RecordingItem?,
         descriptionTextForRecordingID: @escaping (String) -> String,
         onDescriptionChange: @escaping (String, String) -> Void,
+        isTranscriptEdited: @escaping (String) -> Bool,
+        onTranscriptChange: @escaping (String, String) -> Void,
+        onRevertTranscript: @escaping (String) -> Void,
         onCopyTranscript: @escaping (RecordingItem) -> Void
     ) {
         self.recording = recording
         self.descriptionTextForRecordingID = descriptionTextForRecordingID
         self.onDescriptionChange = onDescriptionChange
+        self.isTranscriptEdited = isTranscriptEdited
+        self.onTranscriptChange = onTranscriptChange
+        self.onRevertTranscript = onRevertTranscript
         self.onCopyTranscript = onCopyTranscript
     }
 
@@ -65,12 +74,24 @@ public struct TranscriptDetailView: View {
                         .frame(height: 30)
                         .frame(maxWidth: .infinity)
 
-                    Label(Self.inlineDateFormatter.string(from: recording.source.effectiveDate), systemImage: "calendar")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(Self.dateFormatter.string(from: recording.source.effectiveDate))
+                    if isTranscriptEdited(recording.id) {
+                        Menu {
+                            Button("Revert to Original") {
+                                onRevertTranscript(recording.id)
+                            }
+                        } label: {
+                            Text("Edited")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.orange.opacity(0.2))
+                                )
+                        }
+                        .menuStyle(.borderlessButton)
+                        .help("Transcript edited")
+                    }
 
                     Button {
                         onCopyTranscript(recording)
@@ -135,9 +156,15 @@ public struct TranscriptDetailView: View {
             Divider()
 
             if let transcript = recording.transcript {
-                SelectableTranscriptTextView(
-                    attributedText: transcriptDisplayAttributedText(for: transcript)
+                let showAppleFormatting = !isTranscriptEdited(recording.id)
+                EditableTranscriptTextView(
+                    attributedText: transcriptDisplayAttributedText(
+                        for: transcript,
+                        preferAppleFormatting: showAppleFormatting
+                    ),
+                    text: transcriptBinding(for: recording)
                 )
+                .id(recording.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ContentUnavailableView(
@@ -163,6 +190,13 @@ public struct TranscriptDetailView: View {
         Binding(
             get: { descriptionTextForRecordingID(recording.id) },
             set: { onDescriptionChange(recording.id, $0) }
+        )
+    }
+
+    private func transcriptBinding(for recording: RecordingItem) -> Binding<String> {
+        Binding(
+            get: { recording.transcript?.text ?? "" },
+            set: { onTranscriptChange(recording.id, $0) }
         )
     }
 
@@ -262,10 +296,18 @@ public struct TranscriptDetailView: View {
         return nil
     }
 
-    private func transcriptDisplayAttributedText(for transcript: TranscriptData) -> NSAttributedString {
-        if let appleAttributed = appleAttributedTranscript(from: transcript),
+    private func transcriptDisplayAttributedText(
+        for transcript: TranscriptData,
+        preferAppleFormatting: Bool
+    ) -> NSAttributedString {
+        if preferAppleFormatting,
+           let appleAttributed = appleAttributedTranscript(from: transcript),
            hasMeaningfulTranscriptStructure(appleAttributed.string) {
             return appleAttributed
+        }
+
+        if !preferAppleFormatting {
+            return NSAttributedString(string: transcript.text, attributes: baseTranscriptAttributes)
         }
 
         let formatted = fallbackFormattedTranscript(transcript.text)
@@ -600,8 +642,9 @@ private final class InlineAudioPlayer: ObservableObject {
     }
 }
 
-private struct SelectableTranscriptTextView: NSViewRepresentable {
+private struct EditableTranscriptTextView: NSViewRepresentable {
     let attributedText: NSAttributedString
+    @Binding var text: String
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -612,9 +655,10 @@ private struct SelectableTranscriptTextView: NSViewRepresentable {
         scrollView.drawsBackground = false
 
         let textView = NSTextView()
-        textView.isEditable = false
+        textView.delegate = context.coordinator
+        textView.isEditable = true
         textView.isSelectable = true
-        textView.isRichText = true
+        textView.isRichText = false
         textView.importsGraphics = false
         textView.usesFindBar = true
         textView.usesAdaptiveColorMappingForDarkAppearance = true
@@ -632,9 +676,47 @@ private struct SelectableTranscriptTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
-        if textView.attributedString() != attributedText {
+        let currentNormalized = normalized(textView.string)
+        let boundNormalized = normalized(text)
+        guard currentNormalized != boundNormalized else { return }
+
+        let selectedRange = textView.selectedRange()
+        context.coordinator.isApplyingProgrammaticUpdate = true
+        if boundNormalized == normalized(attributedText.string) {
             textView.textStorage?.setAttributedString(attributedText)
+        } else {
+            textView.string = text
         }
+        textView.setSelectedRange(selectedRange)
+        context.coordinator.isApplyingProgrammaticUpdate = false
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding private var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            guard !isApplyingProgrammaticUpdate else { return }
+            if text != textView.string {
+                text = textView.string
+            }
+        }
+
+        var isApplyingProgrammaticUpdate = false
+    }
+
+    private func normalized(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 #endif

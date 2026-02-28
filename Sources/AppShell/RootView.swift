@@ -144,6 +144,13 @@ struct RootView: View {
                     onDescriptionChange: { recordingID, description in
                         model.setDescription(description, for: recordingID)
                     },
+                    isTranscriptEdited: model.isTranscriptEdited(for:),
+                    onTranscriptChange: { recordingID, text in
+                        model.setEditedTranscriptText(text, for: recordingID)
+                    },
+                    onRevertTranscript: { recordingID in
+                        model.revertTranscriptToOriginal(for: recordingID)
+                    },
                     onCopyTranscript: { _ in model.copyCurrentTranscript() }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

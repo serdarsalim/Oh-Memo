@@ -45,6 +45,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var aiIsAnalyzing = false
     @Published private(set) var aiAnalysisError: String?
     @Published private(set) var aiReportsByRecordingID: [String: CachedAITranscriptReport] = [:]
+    @Published private(set) var editedTranscriptTextByRecordingID: [String: String]
     @Published private(set) var hasOpenAIAPIKey = false
     @Published private(set) var openAIAPIKeyMask = ""
     @Published private(set) var aiAnalysisPrompt: String
@@ -79,6 +80,7 @@ final class AppModel: ObservableObject {
     private static let appearanceModeKey = "voiceMemo.appearanceMode"
     private static let descriptionsKey = "voiceMemo.recordingDescriptions.v1"
     private static let aiReportsKey = "voiceMemo.aiReports.v1"
+    private static let editedTranscriptTextKey = "voiceMemo.editedTranscriptText.v1"
     private static let openAIAPIKeyStorageKey = "voiceMemo.openAIApiKey.v1"
     private static let aiAnalysisPromptKey = "voiceMemo.aiAnalysisPrompt.v1"
     private static let archivedRecordingIDsKey = "voiceMemo.archivedRecordingIDs.v1"
@@ -102,6 +104,7 @@ final class AppModel: ObservableObject {
         self.appearanceMode = Self.loadAppearanceMode(defaults: defaults)
         self.descriptionsByRecordingID = Self.loadRecordingDescriptions(defaults: defaults)
         self.aiReportsByRecordingID = Self.loadAIReports(defaults: defaults)
+        self.editedTranscriptTextByRecordingID = Self.loadEditedTranscriptText(defaults: defaults)
         self.aiAnalysisPrompt = Self.loadAIAnalysisPrompt(defaults: defaults)
         self.archivedRecordingIDs = Self.loadArchivedRecordingIDs(defaults: defaults)
         self.showArchivedRecordings = Self.loadShowArchivedRecordings(defaults: defaults)
@@ -137,7 +140,10 @@ final class AppModel: ObservableObject {
             return nil
         }
 
-        return allRecordings.first(where: { $0.id == selectedRecordingID })
+        guard let recording = allRecordings.first(where: { $0.id == selectedRecordingID }) else {
+            return nil
+        }
+        return recordingWithEditedTranscript(recording)
     }
 
     var folderPathDescription: String {
@@ -290,9 +296,11 @@ final class AppModel: ObservableObject {
 
     private func recordingsForBulkExport() -> [RecordingItem] {
         if includeArchivedInBulkExport {
-            return allRecordings
+            return allRecordings.map(recordingWithEditedTranscript)
         }
-        return allRecordings.filter { !archivedRecordingIDs.contains($0.id) }
+        return allRecordings
+            .filter { !archivedRecordingIDs.contains($0.id) }
+            .map(recordingWithEditedTranscript)
     }
 
     var selectedAIReport: CachedAITranscriptReport? {
@@ -313,6 +321,34 @@ final class AppModel: ObservableObject {
             descriptionsByRecordingID[recordingID] = description
         }
         saveRecordingDescriptions()
+    }
+
+    func setEditedTranscriptText(_ text: String, for recordingID: String) {
+        guard let original = originalTranscriptText(for: recordingID) else { return }
+        if text == original {
+            if editedTranscriptTextByRecordingID.removeValue(forKey: recordingID) != nil {
+                saveEditedTranscriptText()
+                refreshVisibleRecordings()
+            }
+            return
+        }
+
+        if editedTranscriptTextByRecordingID[recordingID] != text {
+            editedTranscriptTextByRecordingID[recordingID] = text
+            saveEditedTranscriptText()
+            refreshVisibleRecordings()
+        }
+    }
+
+    func revertTranscriptToOriginal(for recordingID: String) {
+        guard editedTranscriptTextByRecordingID.removeValue(forKey: recordingID) != nil else { return }
+        saveEditedTranscriptText()
+        refreshVisibleRecordings()
+        showTransientMessage("Reverted to original")
+    }
+
+    func isTranscriptEdited(for recordingID: String) -> Bool {
+        editedTranscriptTextByRecordingID[recordingID] != nil
     }
 
     func isArchived(recordingID: String) -> Bool {
@@ -501,6 +537,7 @@ final class AppModel: ObservableObject {
                 }.value
 
                 allRecordings = initialResult.recordings
+                pruneEditedTranscriptOverrides()
                 scanSummary = initialResult
                 failures = initialResult.failures
                 refreshVisibleRecordings()
@@ -521,6 +558,7 @@ final class AppModel: ObservableObject {
 
                 let mergedResult = mergeScanResults(primary: initialResult, secondary: remainingResult)
                 allRecordings = mergedResult.recordings
+                pruneEditedTranscriptOverrides()
                 scanSummary = mergedResult
                 failures = mergedResult.failures
                 refreshVisibleRecordings()
@@ -562,9 +600,10 @@ final class AppModel: ObservableObject {
         let baseRecordings = showArchivedRecordings
             ? allRecordings
             : allRecordings.filter { !archivedRecordingIDs.contains($0.id) }
+        let displayRecordings = baseRecordings.map(recordingWithEditedTranscript)
 
         visibleRecordings = searchUseCase.execute(
-            recordings: baseRecordings,
+            recordings: displayRecordings,
             query: searchQuery,
             sort: sortOption
         )
@@ -677,6 +716,10 @@ final class AppModel: ObservableObject {
         defaults.set(data, forKey: Self.aiReportsKey)
     }
 
+    private func saveEditedTranscriptText() {
+        defaults.set(editedTranscriptTextByRecordingID, forKey: Self.editedTranscriptTextKey)
+    }
+
     private func refreshOpenAIAPIKeyState() {
         guard let key = defaults.string(forKey: Self.openAIAPIKeyStorageKey), !key.isEmpty else {
             hasOpenAIAPIKey = false
@@ -692,6 +735,43 @@ final class AppModel: ObservableObject {
     private func digestForTranscript(_ text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func originalTranscriptText(for recordingID: String) -> String? {
+        allRecordings.first(where: { $0.id == recordingID })?.transcript?.text
+    }
+
+    private func effectiveTranscriptText(for recording: RecordingItem) -> String? {
+        if let edited = editedTranscriptTextByRecordingID[recording.id] {
+            return edited
+        }
+        return recording.transcript?.text
+    }
+
+    private func recordingWithEditedTranscript(_ recording: RecordingItem) -> RecordingItem {
+        guard let transcript = recording.transcript else { return recording }
+        guard let effectiveText = effectiveTranscriptText(for: recording), effectiveText != transcript.text else {
+            return recording
+        }
+        return RecordingItem(
+            source: recording.source,
+            transcript: TranscriptData(
+                text: effectiveText,
+                jsonPayload: transcript.jsonPayload,
+                localeIdentifier: transcript.localeIdentifier
+            ),
+            status: recording.status,
+            scanIndex: recording.scanIndex,
+            errorMessage: recording.errorMessage
+        )
+    }
+
+    private func pruneEditedTranscriptOverrides() {
+        let validIDs = Set(allRecordings.map(\.id))
+        let filtered = editedTranscriptTextByRecordingID.filter { validIDs.contains($0.key) }
+        guard filtered.count != editedTranscriptTextByRecordingID.count else { return }
+        editedTranscriptTextByRecordingID = filtered
+        saveEditedTranscriptText()
     }
 
     private func format(report: AITranscriptReport) -> String {
@@ -735,6 +815,10 @@ final class AppModel: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode([String: CachedAITranscriptReport].self, from: data)) ?? [:]
+    }
+
+    private static func loadEditedTranscriptText(defaults: UserDefaults) -> [String: String] {
+        defaults.dictionary(forKey: Self.editedTranscriptTextKey) as? [String: String] ?? [:]
     }
 
     private static func loadAIAnalysisPrompt(defaults: UserDefaults) -> String {
