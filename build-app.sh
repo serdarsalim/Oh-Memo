@@ -2,10 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="VoiceMemoTranscriptsApp"
+APP_EXECUTABLE_NAME="VoiceMemoTranscriptsApp"
+APP_BUNDLE_NAME="Oh Memo"
+APP_BUNDLE_DIR_NAME="Oh Memo.app"
 BUILD_DIR="$ROOT_DIR/.build"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/$APP_NAME.app"
+APP_DIR="$DIST_DIR/$APP_BUNDLE_DIR_NAME"
+LEGACY_APP_DIR="$DIST_DIR/VoiceMemoTranscriptsApp.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -14,6 +17,8 @@ ICON_SOURCE_FALLBACK="$ROOT_DIR/output/logo-concepts/transcriptmanager.png"
 ICONSET_DIR="$BUILD_DIR/AppIcon.iconset"
 ICON_ICNS_PATH="$RESOURCES_DIR/AppIcon.icns"
 BIN_PATH=""
+APP_SHORT_VERSION="$(date +%Y.%m.%d)"
+APP_BUILD_VERSION="$(date +%Y%m%d%H%M%S)"
 
 echo "Building release binary..."
 cd "$ROOT_DIR"
@@ -22,18 +27,21 @@ export CLANG_MODULE_CACHE_PATH="$BUILD_DIR/ModuleCache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$BUILD_DIR/ModuleCache"
 swift build -c release
 
-BIN_PATH="$(find "$BUILD_DIR" -type f -path "*/release/$APP_NAME" | head -n 1 || true)"
+BIN_PATH="$(find "$BUILD_DIR" -type f -path "*/release/$APP_EXECUTABLE_NAME" | head -n 1 || true)"
 if [[ -z "$BIN_PATH" || ! -f "$BIN_PATH" ]]; then
-  echo "Error: could not find release binary for $APP_NAME." >&2
+  echo "Error: could not find release binary for $APP_EXECUTABLE_NAME." >&2
   exit 1
 fi
 
 echo "Creating app bundle at $APP_DIR"
 rm -rf "$APP_DIR"
+if [[ "$LEGACY_APP_DIR" != "$APP_DIR" ]]; then
+  rm -rf "$LEGACY_APP_DIR"
+fi
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$BIN_PATH" "$MACOS_DIR/$APP_NAME"
-chmod +x "$MACOS_DIR/$APP_NAME"
+cp "$BIN_PATH" "$MACOS_DIR/$APP_EXECUTABLE_NAME"
+chmod +x "$MACOS_DIR/$APP_EXECUTABLE_NAME"
 
 # The extractor must ship with the app bundle.
 cp "$ROOT_DIR/Sources/AppShell/Resources/extract-apple-voice-memos-transcript" \
@@ -81,7 +89,7 @@ if [[ -n "$ICON_SOURCE" ]]; then
   iconutil -c icns "$ICONSET_DIR" -o "$ICON_ICNS_PATH"
 fi
 
-cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
+cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -89,7 +97,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>VoiceMemoTranscriptsApp</string>
+  <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundleIdentifier</key>
   <string>com.serdarsalim.transcript-manager</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -97,13 +105,13 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleName</key>
-  <string>Oh Memo</string>
+  <string>$APP_BUNDLE_NAME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>$APP_SHORT_VERSION</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$APP_BUILD_VERSION</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSHighResolutionCapable</key>
@@ -114,5 +122,6 @@ PLIST
 
 echo
 echo "Done."
+echo "Version: $APP_SHORT_VERSION ($APP_BUILD_VERSION)"
 echo "App bundle: $APP_DIR"
 echo "Launch with: open \"$APP_DIR\""
