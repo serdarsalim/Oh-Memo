@@ -11,6 +11,7 @@ struct AIAssistantSidebarView: View {
     let isAnalyzing: Bool
     let errorMessage: String?
     let hasAPIKey: Bool
+    let providerDisplayName: String
     let onRegenerate: () -> Void
     let onCopy: () -> Void
     let onEditPrompt: () -> Void
@@ -76,7 +77,7 @@ struct AIAssistantSidebarView: View {
             }
 
             if !hasAPIKey {
-                Button("Set OpenAI API Key", action: onOpenSettings)
+                Button("Set \(providerDisplayName) API Key", action: onOpenSettings)
                     .buttonStyle(.link)
             }
 
@@ -85,39 +86,6 @@ struct AIAssistantSidebarView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
-
-            Divider()
-
-            if let report = report?.report {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        summarySection(report)
-                        if !report.actionItems.isEmpty {
-                            section("Action Items", bullets: report.actionItems)
-                        }
-                        if !report.strengths.isEmpty {
-                            section("Strengths", bullets: report.strengths)
-                        }
-                        if !report.improvements.isEmpty {
-                            section("Improvements", bullets: report.improvements)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                VStack {
-                    Spacer()
-                    ContentUnavailableView(
-                        "No Analysis Yet",
-                        systemImage: "sparkles",
-                        description: Text("Switch to AI view to auto-analyze the selected transcript.")
-                    )
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            Divider()
 
             HStack(spacing: 10) {
                 Button(action: audioPlayer.togglePlayPause) {
@@ -155,7 +123,42 @@ struct AIAssistantSidebarView: View {
                     .frame(width: 92, alignment: .trailing)
             }
 
-            Spacer(minLength: 0)
+            Divider()
+
+            if let report = report?.report {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        summarySection(report)
+                        if !report.actionItems.isEmpty {
+                            section("Action Items", bullets: report.actionItems)
+                        }
+                        if !report.strengths.isEmpty {
+                            section("Strengths", bullets: report.strengths)
+                        }
+                        if !report.improvements.isEmpty {
+                            section("Improvements", bullets: report.improvements)
+                        }
+                        if let title = report.title {
+                            Text("Suggested title: \(title)")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                VStack {
+                    Spacer()
+                    ContentUnavailableView(
+                        "No Analysis Yet",
+                        systemImage: "sparkles",
+                        description: Text("Switch to AI view to auto-analyze the selected transcript.")
+                    )
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -176,13 +179,6 @@ struct AIAssistantSidebarView: View {
             Text(report.summary)
                 .font(bodyFont)
                 .textSelection(.enabled)
-
-            if let title = report.title {
-                Text("Suggested title: \(title)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
 
             if let score = report.score {
                 HStack(alignment: .center, spacing: 10) {

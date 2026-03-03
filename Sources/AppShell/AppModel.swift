@@ -25,7 +25,22 @@ final class AppModel: ObservableObject {
     @Published var sortOption: RecordingSortOption = .newestFirst {
         didSet { refreshVisibleRecordings() }
     }
-    @Published var selectedRecordingID: String?
+    @Published var selectedRecordingID: String? {
+        didSet {
+            guard !isSyncingSelectionState else { return }
+            isSyncingSelectionState = true
+            selectedRecordingIDs = selectedRecordingID.map { [$0] } ?? []
+            isSyncingSelectionState = false
+        }
+    }
+    @Published var selectedRecordingIDs: Set<String> = [] {
+        didSet {
+            guard !isSyncingSelectionState else { return }
+            isSyncingSelectionState = true
+            syncPrimarySelectionFromMultiSelection()
+            isSyncingSelectionState = false
+        }
+    }
     @Published var allRecordings: [RecordingItem] = []
     @Published var visibleRecordings: [RecordingItem] = []
     @Published private(set) var descriptionsByRecordingID: [String: String]
@@ -46,8 +61,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var aiAnalysisError: String?
     @Published private(set) var aiReportsByRecordingID: [String: CachedAITranscriptReport] = [:]
     @Published private(set) var editedTranscriptTextByRecordingID: [String: String]
+    @Published var selectedAIProvider: AIProvider {
+        didSet {
+            saveSelectedAIProvider()
+            refreshAPIKeyState()
+        }
+    }
+    @Published private(set) var hasSelectedProviderAPIKey = false
+    @Published private(set) var selectedProviderAPIKeyMask = "Not set"
     @Published private(set) var hasOpenAIAPIKey = false
-    @Published private(set) var openAIAPIKeyMask = ""
+    @Published private(set) var openAIAPIKeyMask = "Not set"
+    @Published private(set) var hasGeminiAPIKey = false
+    @Published private(set) var geminiAPIKeyMask = "Not set"
     @Published private(set) var aiAnalysisPrompt: String
     @Published var showArchivedRecordings: Bool {
         didSet {
@@ -66,13 +91,15 @@ final class AppModel: ObservableObject {
     private let folderPicker: FolderPickerClient
     private let clipboard: ClipboardClient
     private let saveClient: FileSaveClient
-    private let transcriptAnalyzer: OpenAITranscriptAnalyzer
+    private let openAITranscriptAnalyzer: OpenAITranscriptAnalyzer
+    private let geminiTranscriptAnalyzer: GeminiTranscriptAnalyzer
     private let defaults: UserDefaults
 
     private var securityScopedURL: URL?
     private var transientMessageTask: Task<Void, Never>?
     private var autoRescanDebounceTask: Task<Void, Never>?
     private var pendingAutoRescan = false
+    private var isSyncingSelectionState = false
 #if os(macOS)
     private var folderWatchSource: DispatchSourceFileSystemObject?
     private var folderWatchFileDescriptor: CInt = -1
@@ -82,6 +109,8 @@ final class AppModel: ObservableObject {
     private static let aiReportsKey = "voiceMemo.aiReports.v1"
     private static let editedTranscriptTextKey = "voiceMemo.editedTranscriptText.v1"
     private static let openAIAPIKeyStorageKey = "voiceMemo.openAIApiKey.v1"
+    private static let geminiAPIKeyStorageKey = "voiceMemo.geminiApiKey.v1"
+    private static let aiProviderKey = "voiceMemo.aiProvider.v1"
     private static let aiAnalysisPromptKey = "voiceMemo.aiAnalysisPrompt.v1"
     private static let archivedRecordingIDsKey = "voiceMemo.archivedRecordingIDs.v1"
     private static let showArchivedRecordingsKey = "voiceMemo.showArchivedRecordings.v1"
@@ -101,7 +130,8 @@ final class AppModel: ObservableObject {
         folderPicker: FolderPickerClient,
         clipboard: ClipboardClient,
         saveClient: FileSaveClient,
-        transcriptAnalyzer: OpenAITranscriptAnalyzer = OpenAITranscriptAnalyzer(),
+        openAITranscriptAnalyzer: OpenAITranscriptAnalyzer = OpenAITranscriptAnalyzer(),
+        geminiTranscriptAnalyzer: GeminiTranscriptAnalyzer = GeminiTranscriptAnalyzer(),
         defaults: UserDefaults = .standard
     ) {
         self.defaults = defaults
@@ -113,6 +143,7 @@ final class AppModel: ObservableObject {
         self.archivedRecordingIDs = Self.loadArchivedRecordingIDs(defaults: defaults)
         self.showArchivedRecordings = Self.loadShowArchivedRecordings(defaults: defaults)
         self.includeArchivedInBulkExport = Self.loadIncludeArchivedInBulkExport(defaults: defaults)
+        self.selectedAIProvider = Self.loadAIProvider(defaults: defaults)
         self.scanUseCase = scanUseCase
         self.searchUseCase = searchUseCase
         self.exportUseCase = exportUseCase
@@ -120,8 +151,9 @@ final class AppModel: ObservableObject {
         self.folderPicker = folderPicker
         self.clipboard = clipboard
         self.saveClient = saveClient
-        self.transcriptAnalyzer = transcriptAnalyzer
-        refreshOpenAIAPIKeyState()
+        self.openAITranscriptAnalyzer = openAITranscriptAnalyzer
+        self.geminiTranscriptAnalyzer = geminiTranscriptAnalyzer
+        refreshAPIKeyState()
     }
 
     deinit {
@@ -413,22 +445,58 @@ final class AppModel: ObservableObject {
     }
 
     func archiveSelectedRecording() {
-        guard let selectedRecordingID else { return }
-        archiveRecording(selectedRecordingID)
+        archiveRecordings(selectedRecordingIDs)
     }
 
-    func saveOpenAIAPIKey(_ key: String) {
+    func unarchiveSelectedRecordings() {
+        unarchiveRecordings(selectedRecordingIDs)
+    }
+
+    func archiveRecordings(_ recordingIDs: Set<String>) {
+        let ids = recordingIDs.isEmpty ? Set(selectedRecordingID.map { [$0] } ?? []) : recordingIDs
+        guard !ids.isEmpty else { return }
+
+        var archivedCount = 0
+        for recordingID in ids where archivedRecordingIDs.insert(recordingID).inserted {
+            archivedCount += 1
+        }
+        guard archivedCount > 0 else { return }
+
+        saveArchivedRecordingIDs()
+        refreshVisibleRecordings()
+        showTransientMessage(archivedCount == 1 ? "Archived transcript" : "Archived \(archivedCount) transcripts")
+    }
+
+    func unarchiveRecordings(_ recordingIDs: Set<String>) {
+        guard !recordingIDs.isEmpty else { return }
+
+        var unarchivedCount = 0
+        for recordingID in recordingIDs where archivedRecordingIDs.remove(recordingID) != nil {
+            unarchivedCount += 1
+        }
+        guard unarchivedCount > 0 else { return }
+
+        saveArchivedRecordingIDs()
+        refreshVisibleRecordings()
+        showTransientMessage(unarchivedCount == 1 ? "Unarchived transcript" : "Unarchived \(unarchivedCount) transcripts")
+    }
+
+    func saveAPIKey(_ key: String, for provider: AIProvider) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            defaults.removeObject(forKey: Self.openAIAPIKeyStorageKey)
-            refreshOpenAIAPIKeyState()
-            showTransientMessage("Removed OpenAI API key")
+            removeAPIKey(for: provider)
             return
         }
 
-        defaults.set(trimmed, forKey: Self.openAIAPIKeyStorageKey)
-        refreshOpenAIAPIKeyState()
-        showTransientMessage("Saved OpenAI API key")
+        defaults.set(trimmed, forKey: apiKeyStorageKey(for: provider))
+        refreshAPIKeyState()
+        showTransientMessage("Saved \(provider.displayName) API key")
+    }
+
+    func removeAPIKey(for provider: AIProvider) {
+        defaults.removeObject(forKey: apiKeyStorageKey(for: provider))
+        refreshAPIKeyState()
+        showTransientMessage("Removed \(provider.displayName) API key")
     }
 
     func saveAIAnalysisPrompt(_ prompt: String) {
@@ -458,8 +526,8 @@ final class AppModel: ObservableObject {
             aiAnalysisError = "Selected recording has no transcript text."
             return
         }
-        guard let apiKey = defaults.string(forKey: Self.openAIAPIKeyStorageKey), !apiKey.isEmpty else {
-            aiAnalysisError = AIAnalysisError.missingAPIKey.localizedDescription
+        guard let apiKey = apiKey(for: selectedAIProvider) else {
+            aiAnalysisError = "\(selectedAIProvider.displayName) API key is missing. Add it from settings."
             isShowingAISettings = true
             return
         }
@@ -481,12 +549,23 @@ final class AppModel: ObservableObject {
 
         Task {
             do {
-                let report = try await transcriptAnalyzer.analyze(
-                    transcript: transcript,
-                    recordingTitle: recording.source.voiceMemoTitle,
-                    apiKey: apiKey,
-                    systemPrompt: promptForAnalysis
-                )
+                let report: AITranscriptReport
+                switch selectedAIProvider {
+                case .openAI:
+                    report = try await openAITranscriptAnalyzer.analyze(
+                        transcript: transcript,
+                        recordingTitle: recording.source.voiceMemoTitle,
+                        apiKey: apiKey,
+                        systemPrompt: promptForAnalysis
+                    )
+                case .gemini:
+                    report = try await geminiTranscriptAnalyzer.analyze(
+                        transcript: transcript,
+                        recordingTitle: recording.source.voiceMemoTitle,
+                        apiKey: apiKey,
+                        systemPrompt: promptForAnalysis
+                    )
+                }
                 let cached = CachedAITranscriptReport(
                     report: report,
                     transcriptDigest: digest,
@@ -624,9 +703,9 @@ final class AppModel: ObservableObject {
                 refreshVisibleRecordings()
                 autoSelectNewestNewRecordingIfAvailable(previousRecordingIDs: previousRecordingIDs)
 
-                if selectedRecordingID == nil {
-                    selectedRecordingID = visibleRecordings.first?.id
-                }
+        if selectedRecordingID == nil {
+            selectedRecordingID = visibleRecordings.first?.id
+        }
 
                 progressText = "Loading more transcripts..."
                 progressFraction = nil
@@ -691,6 +770,12 @@ final class AppModel: ObservableObject {
             sort: sortOption
         )
 
+        let visibleIDs = Set(visibleRecordings.map(\.id))
+        let filteredSelection = selectedRecordingIDs.intersection(visibleIDs)
+        if filteredSelection != selectedRecordingIDs {
+            selectedRecordingIDs = filteredSelection
+        }
+
         if let selectedRecordingID,
            !visibleRecordings.contains(where: { $0.id == selectedRecordingID }) {
             self.selectedRecordingID = visibleRecordings.first?.id
@@ -705,7 +790,7 @@ final class AppModel: ObservableObject {
         guard selectedRecordingID != newestNewRecording.id else { return }
 
         selectedRecordingID = newestNewRecording.id
-        if hasOpenAIAPIKey {
+        if hasSelectedProviderAPIKey {
             analyzeSelectedTranscriptIfMissing()
         }
     }
@@ -741,6 +826,24 @@ final class AppModel: ObservableObject {
             return
         }
         scanFolder()
+    }
+
+    private func syncPrimarySelectionFromMultiSelection() {
+        guard !selectedRecordingIDs.isEmpty else {
+            selectedRecordingID = nil
+            return
+        }
+
+        if let selectedRecordingID, selectedRecordingIDs.contains(selectedRecordingID) {
+            return
+        }
+
+        if let firstVisibleSelected = visibleRecordings.first(where: { selectedRecordingIDs.contains($0.id) }) {
+            selectedRecordingID = firstVisibleSelected.id
+            return
+        }
+
+        selectedRecordingID = selectedRecordingIDs.first
     }
 
     private func startWatchingFolder(_ folder: URL) {
@@ -816,16 +919,52 @@ final class AppModel: ObservableObject {
         defaults.set(editedTranscriptTextByRecordingID, forKey: Self.editedTranscriptTextKey)
     }
 
-    private func refreshOpenAIAPIKeyState() {
-        guard let key = defaults.string(forKey: Self.openAIAPIKeyStorageKey), !key.isEmpty else {
-            hasOpenAIAPIKey = false
-            openAIAPIKeyMask = "Not set"
-            return
-        }
+    private func refreshAPIKeyState() {
+        let openAIKey = defaults.string(forKey: Self.openAIAPIKeyStorageKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let geminiKey = defaults.string(forKey: Self.geminiAPIKeyStorageKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        hasOpenAIAPIKey = true
+        hasOpenAIAPIKey = openAIKey?.isEmpty == false
+        openAIAPIKeyMask = maskForAPIKey(openAIKey)
+
+        hasGeminiAPIKey = geminiKey?.isEmpty == false
+        geminiAPIKeyMask = maskForAPIKey(geminiKey)
+
+        switch selectedAIProvider {
+        case .openAI:
+            hasSelectedProviderAPIKey = hasOpenAIAPIKey
+            selectedProviderAPIKeyMask = openAIAPIKeyMask
+        case .gemini:
+            hasSelectedProviderAPIKey = hasGeminiAPIKey
+            selectedProviderAPIKeyMask = geminiAPIKeyMask
+        }
+    }
+
+    private func maskForAPIKey(_ key: String?) -> String {
+        guard let key, !key.isEmpty else { return "Not set" }
         let suffix = String(key.suffix(4))
-        openAIAPIKeyMask = "••••\(suffix)"
+        return "••••\(suffix)"
+    }
+
+    private func apiKeyStorageKey(for provider: AIProvider) -> String {
+        switch provider {
+        case .openAI:
+            return Self.openAIAPIKeyStorageKey
+        case .gemini:
+            return Self.geminiAPIKeyStorageKey
+        }
+    }
+
+    private func apiKey(for provider: AIProvider) -> String? {
+        let key = defaults.string(forKey: apiKeyStorageKey(for: provider))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let key, !key.isEmpty else { return nil }
+        return key
+    }
+
+    private func saveSelectedAIProvider() {
+        defaults.set(selectedAIProvider.rawValue, forKey: Self.aiProviderKey)
     }
 
     private func digestForTranscript(_ text: String) -> String {
@@ -931,6 +1070,14 @@ final class AppModel: ObservableObject {
         return prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? OpenAITranscriptAnalyzer.defaultSystemPrompt
             : prompt
+    }
+
+    private static func loadAIProvider(defaults: UserDefaults) -> AIProvider {
+        guard let rawValue = defaults.string(forKey: Self.aiProviderKey),
+              let provider = AIProvider(rawValue: rawValue) else {
+            return .openAI
+        }
+        return provider
     }
 
     private static func loadArchivedRecordingIDs(defaults: UserDefaults) -> Set<String> {

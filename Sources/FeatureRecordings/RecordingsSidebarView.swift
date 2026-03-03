@@ -6,6 +6,7 @@ import AppKit
 
 public struct RecordingsSidebarView: View {
     @Binding private var searchQuery: String
+    @Binding private var selectedRecordingIDs: Set<String>
     @Binding private var selectedRecordingID: String?
     private let isScanning: Bool
     private let progressText: String
@@ -13,12 +14,13 @@ public struct RecordingsSidebarView: View {
     private let descriptionsByRecordingID: [String: String]
     private let archivedRecordingIDs: Set<String>
     private let onDescriptionChange: (String, String) -> Void
-    private let onArchiveToggle: (String) -> Void
-    private let onArchiveSelected: () -> Void
+    private let onArchiveSelected: (Set<String>) -> Void
+    private let onUnarchiveSelected: (Set<String>) -> Void
     @State private var editingRecordingID: String?
 
     public init(
         searchQuery: Binding<String>,
+        selectedRecordingIDs: Binding<Set<String>>,
         selectedRecordingID: Binding<String?>,
         isScanning: Bool,
         progressText: String,
@@ -26,10 +28,11 @@ public struct RecordingsSidebarView: View {
         descriptionsByRecordingID: [String: String],
         archivedRecordingIDs: Set<String>,
         onDescriptionChange: @escaping (String, String) -> Void,
-        onArchiveToggle: @escaping (String) -> Void,
-        onArchiveSelected: @escaping () -> Void
+        onArchiveSelected: @escaping (Set<String>) -> Void,
+        onUnarchiveSelected: @escaping (Set<String>) -> Void
     ) {
         _searchQuery = searchQuery
+        _selectedRecordingIDs = selectedRecordingIDs
         _selectedRecordingID = selectedRecordingID
         self.isScanning = isScanning
         self.progressText = progressText
@@ -37,8 +40,8 @@ public struct RecordingsSidebarView: View {
         self.descriptionsByRecordingID = descriptionsByRecordingID
         self.archivedRecordingIDs = archivedRecordingIDs
         self.onDescriptionChange = onDescriptionChange
-        self.onArchiveToggle = onArchiveToggle
         self.onArchiveSelected = onArchiveSelected
+        self.onUnarchiveSelected = onUnarchiveSelected
     }
 
     public var body: some View {
@@ -63,6 +66,17 @@ public struct RecordingsSidebarView: View {
             .padding([.top, .horizontal], 10)
             .padding(.bottom, 8)
 
+            HStack {
+                Spacer()
+                Text("\(selectedRecordingIDs.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .opacity(selectedRecordingIDs.count > 1 ? 1 : 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+            .frame(height: 22)
+
             if recordings.isEmpty {
                 if isScanning {
                     VStack(spacing: 10) {
@@ -85,9 +99,10 @@ public struct RecordingsSidebarView: View {
                 }
             } else {
                 ScrollViewReader { proxy in
-                    List(recordings, selection: $selectedRecordingID) { item in
+                    List(recordings, selection: $selectedRecordingIDs) { item in
                         RecordingRowView(
                             item: item,
+                            isArchived: archivedRecordingIDs.contains(item.id),
                             isEditing: Binding(
                                 get: { editingRecordingID == item.id },
                                 set: { isEditing in
@@ -104,8 +119,20 @@ public struct RecordingsSidebarView: View {
                             .id(item.id)
                             .tag(item.id)
                             .contextMenu {
-                                Button(archivedRecordingIDs.contains(item.id) ? "Unarchive" : "Archive") {
-                                    onArchiveToggle(item.id)
+                                let effectiveSelection = selectedRecordingIDs.contains(item.id)
+                                    ? selectedRecordingIDs
+                                    : Set([item.id])
+                                let hasAnyArchived = effectiveSelection.contains { archivedRecordingIDs.contains($0) }
+                                let hasAnyUnarchived = effectiveSelection.contains { !archivedRecordingIDs.contains($0) }
+                                if hasAnyUnarchived {
+                                    Button("Archive Selected") {
+                                        onArchiveSelected(effectiveSelection)
+                                    }
+                                }
+                                if hasAnyArchived {
+                                    Button("Unarchive Selected") {
+                                        onUnarchiveSelected(effectiveSelection)
+                                    }
                                 }
                             }
                             .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
@@ -113,7 +140,9 @@ public struct RecordingsSidebarView: View {
                     .listStyle(.plain)
                     .onMoveCommand(perform: handleMoveCommand)
 #if os(macOS)
-                    .onDeleteCommand(perform: onArchiveSelected)
+                    .onDeleteCommand {
+                        onArchiveSelected(selectedRecordingIDs)
+                    }
                     .onCommand(#selector(NSResponder.insertNewline(_:)), perform: handleReturnCommand)
 #endif
                     .onChange(of: recordings.map(\.id)) { oldIDs, newIDs in
@@ -192,6 +221,7 @@ public struct RecordingsSidebarView: View {
 
 private struct RecordingRowView: View {
     let item: RecordingItem
+    let isArchived: Bool
     @Binding var isEditing: Bool
     let description: String
     let onDescriptionChange: (String) -> Void
@@ -220,13 +250,27 @@ private struct RecordingRowView: View {
                         }
                     }
             } else {
-                Text(primaryText)
-                    .font(.system(size: 13, weight: .regular))
-                    .lineLimit(2)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 1) {
-                        beginEditing()
+                HStack(alignment: .center, spacing: 6) {
+                    Text(primaryText)
+                        .font(.system(size: 13, weight: .regular))
+                        .lineLimit(2)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 1) {
+                            beginEditing()
+                        }
+
+                    if isArchived {
+                        Text("Archived")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.secondary.opacity(0.15))
+                            )
                     }
+                }
             }
 
             Text(RecordingDateDisplay.timelineLabel(for: item.source.effectiveDate))

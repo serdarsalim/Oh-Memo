@@ -131,7 +131,7 @@ enum AIAnalysisError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "OpenAI API key is missing. Add it from settings."
+            return "API key is missing for the selected AI provider. Add it from settings."
         case .invalidRequest:
             return "Could not build AI request."
         case .invalidResponse:

@@ -37,12 +37,16 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.isShowingAISettings) {
             AISettingsSheet(
-                keyMask: model.openAIAPIKeyMask,
-                hasSavedKey: model.hasOpenAIAPIKey,
+                selectedProvider: $model.selectedAIProvider,
+                openAIKeyMask: model.openAIAPIKeyMask,
+                hasSavedOpenAIKey: model.hasOpenAIAPIKey,
+                geminiKeyMask: model.geminiAPIKeyMask,
+                hasSavedGeminiKey: model.hasGeminiAPIKey,
                 defaultRecordingsFolderPath: model.defaultRecordingsFolderPath,
                 showArchivedRecordings: $model.showArchivedRecordings,
                 includeArchivedInBulkExport: $model.includeArchivedInBulkExport,
-                onSave: model.saveOpenAIAPIKey,
+                onSaveKey: model.saveAPIKey,
+                onRemoveKey: model.removeAPIKey,
                 onResetFolderToDefault: model.resetFolderToDefaultRecordings
             )
         }
@@ -86,6 +90,7 @@ struct RootView: View {
                 HStack(spacing: 0) {
                     RecordingsSidebarView(
                         searchQuery: $model.searchQuery,
+                        selectedRecordingIDs: $model.selectedRecordingIDs,
                         selectedRecordingID: $model.selectedRecordingID,
                         isScanning: model.isScanning,
                         progressText: model.progressText,
@@ -95,8 +100,8 @@ struct RootView: View {
                         onDescriptionChange: { recordingID, description in
                             model.setDescription(description, for: recordingID)
                         },
-                        onArchiveToggle: model.toggleArchiveRecording,
-                        onArchiveSelected: model.archiveSelectedRecording
+                        onArchiveSelected: model.archiveRecordings,
+                        onUnarchiveSelected: model.unarchiveRecordings
                     )
                     .frame(width: sidebarWidth)
 
@@ -176,7 +181,8 @@ struct RootView: View {
             report: model.selectedAIReport,
             isAnalyzing: model.aiIsAnalyzing,
             errorMessage: model.aiAnalysisError,
-            hasAPIKey: model.hasOpenAIAPIKey,
+            hasAPIKey: model.hasSelectedProviderAPIKey,
+            providerDisplayName: model.selectedAIProvider.displayName,
             onRegenerate: { model.analyzeSelectedTranscript(force: true) },
             onCopy: model.copySelectedAIReport,
             onEditPrompt: { model.isShowingAIPromptEditor = true },
@@ -393,27 +399,49 @@ private struct FooterControls: View {
 }
 
 private struct AISettingsSheet: View {
-    let keyMask: String
-    let hasSavedKey: Bool
+    @Binding var selectedProvider: AIProvider
+    let openAIKeyMask: String
+    let hasSavedOpenAIKey: Bool
+    let geminiKeyMask: String
+    let hasSavedGeminiKey: Bool
     let defaultRecordingsFolderPath: String
     @Binding var showArchivedRecordings: Bool
     @Binding var includeArchivedInBulkExport: Bool
-    let onSave: (String) -> Void
+    let onSaveKey: (String, AIProvider) -> Void
+    let onRemoveKey: (AIProvider) -> Void
     let onResetFolderToDefault: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var draftKey: String = ""
     @State private var isReplacingSavedKey: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("AI Settings")
-                .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("AI Settings")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+            }
 
-            Text("OpenAI API Key")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Provider")
+                    .font(.headline)
+                Picker("Provider", selection: $selectedProvider) {
+                    ForEach(AIProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("Only the selected provider is used for analysis.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("\(selectedProvider.displayName) API Key")
                 .font(.headline)
 
-            if hasSavedKey && !isReplacingSavedKey {
-                Text("Saved key: \(keyMask)")
+            if hasSavedKeyForSelectedProvider && !isReplacingSavedKey {
+                Text("Saved key: \(keyMaskForSelectedProvider)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -424,25 +452,25 @@ private struct AISettingsSheet: View {
                     }
 
                     Button("Remove Key") {
-                        onSave("")
+                        onRemoveKey(selectedProvider)
                         draftKey = ""
                         isReplacingSavedKey = false
                     }
                 }
             } else {
-                Text(hasSavedKey ? "Enter a new key to replace the current key." : "No key saved")
+                Text(hasSavedKeyForSelectedProvider ? "Enter a new key to replace the current key." : "No key saved")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                SecureField("sk-...", text: $draftKey)
+                SecureField(selectedProvider.apiKeyPlaceholder, text: $draftKey)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
-                        if saveIfNeeded(), hasSavedKey {
+                        if saveIfNeeded(), hasSavedKeyForSelectedProvider {
                             isReplacingSavedKey = false
                         }
                     }
 
-                if hasSavedKey {
+                if hasSavedKeyForSelectedProvider {
                     HStack {
                         Button("Cancel Replacement") {
                             draftKey = ""
@@ -496,7 +524,7 @@ private struct AISettingsSheet: View {
             HStack {
                 Spacer()
                 Button("Close") {
-                    if !hasSavedKey {
+                    if !hasSavedKeyForSelectedProvider {
                         saveIfNeeded()
                     }
                     draftKey = ""
@@ -506,16 +534,38 @@ private struct AISettingsSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 620, height: 560)
+        .onChange(of: selectedProvider) { _, _ in
+            draftKey = ""
+            isReplacingSavedKey = false
+        }
     }
 
     @discardableResult
     private func saveIfNeeded() -> Bool {
         let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        onSave(trimmed)
+        onSaveKey(trimmed, selectedProvider)
         draftKey = ""
         return true
+    }
+
+    private var hasSavedKeyForSelectedProvider: Bool {
+        switch selectedProvider {
+        case .openAI:
+            return hasSavedOpenAIKey
+        case .gemini:
+            return hasSavedGeminiKey
+        }
+    }
+
+    private var keyMaskForSelectedProvider: String {
+        switch selectedProvider {
+        case .openAI:
+            return openAIKeyMask
+        case .gemini:
+            return geminiKeyMask
+        }
     }
 }
 
