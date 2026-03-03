@@ -9,6 +9,7 @@ BUILD_DIR="$ROOT_DIR/.build"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/$APP_BUNDLE_DIR_NAME"
 LEGACY_APP_DIR="$DIST_DIR/VoiceMemoTranscriptsApp.app"
+ZIP_PATH="$DIST_DIR/oh-memo-macos.zip"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -38,6 +39,7 @@ rm -rf "$APP_DIR"
 if [[ "$LEGACY_APP_DIR" != "$APP_DIR" ]]; then
   rm -rf "$LEGACY_APP_DIR"
 fi
+rm -f "$ZIP_PATH"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BIN_PATH" "$MACOS_DIR/$APP_EXECUTABLE_NAME"
@@ -120,8 +122,18 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Apply ad-hoc signing so macOS can validate bundle integrity.
+echo "Signing app bundle..."
+codesign --force --deep --sign - "$APP_DIR"
+codesign --verify --deep --strict "$APP_DIR"
+
+# Build a clean distributable zip from this app bundle.
+echo "Creating zip archive at $ZIP_PATH"
+ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
+
 echo
 echo "Done."
 echo "Version: $APP_SHORT_VERSION ($APP_BUILD_VERSION)"
 echo "App bundle: $APP_DIR"
+echo "Zip archive: $ZIP_PATH"
 echo "Launch with: open \"$APP_DIR\""

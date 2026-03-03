@@ -14,23 +14,35 @@ public struct ScriptTranscriptExtractor: TranscriptExtractor, Sendable {
     }
 
     public func extractTranscript(from fileURL: URL) async throws -> TranscriptData {
-        guard let extractorURL else {
-            throw TranscriptExtractionError.extractorNotFound
+        if let extractorURL {
+            do {
+                let jsonResult = try await runExtractor(scriptURL: extractorURL, arguments: ["--json", fileURL.path])
+                guard jsonResult.exitCode == 0 else {
+                    let message = [jsonResult.standardError, jsonResult.standardOutput]
+                        .joined(separator: "\n")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    throw TranscriptExtractionError.processFailed(message)
+                }
+
+                let jsonText = jsonResult.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !jsonText.isEmpty else {
+                    throw TranscriptExtractionError.missingTranscript
+                }
+
+                let text = try ScriptTranscriptExtractor.extractPlainText(fromJSONText: jsonText)
+                let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty else {
+                    throw TranscriptExtractionError.missingTranscript
+                }
+
+                let locale = ScriptTranscriptExtractor.extractLocale(fromJSONText: jsonText)
+                return TranscriptData(text: cleaned, jsonPayload: jsonText, localeIdentifier: locale)
+            } catch {
+                // Fall through to native extractor when script execution is unavailable.
+            }
         }
 
-        let jsonResult = try await runExtractor(scriptURL: extractorURL, arguments: ["--json", fileURL.path])
-        guard jsonResult.exitCode == 0 else {
-            let message = [jsonResult.standardError, jsonResult.standardOutput]
-                .joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw TranscriptExtractionError.processFailed(message)
-        }
-
-        let jsonText = jsonResult.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !jsonText.isEmpty else {
-            throw TranscriptExtractionError.missingTranscript
-        }
-
+        let jsonText = try ScriptTranscriptExtractor.extractTranscriptJSONFromM4A(fileURL: fileURL)
         let text = try ScriptTranscriptExtractor.extractPlainText(fromJSONText: jsonText)
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else {
@@ -190,6 +202,104 @@ private extension ScriptTranscriptExtractor {
         }
 
         throw TranscriptExtractionError.invalidData("Unsupported transcript payload format.")
+    }
+
+    static func extractTranscriptJSONFromM4A(fileURL: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? handle.close()
+        }
+
+        let fileSize = try handle.seekToEnd()
+        try handle.seek(toOffset: 0)
+
+        guard let moov = try findAtom(handle: handle, endOffset: fileSize, targetType: "moov") else {
+            throw TranscriptExtractionError.missingTranscript
+        }
+        guard let trak = try findAtom(handle: handle, endOffset: moov.endOffset, targetType: "trak") else {
+            throw TranscriptExtractionError.missingTranscript
+        }
+        guard let udta = try findAtom(handle: handle, endOffset: trak.endOffset, targetType: "udta") else {
+            throw TranscriptExtractionError.missingTranscript
+        }
+        guard let tsrp = try findAtom(handle: handle, endOffset: udta.endOffset, targetType: "tsrp") else {
+            throw TranscriptExtractionError.missingTranscript
+        }
+
+        let payloadSize = Int(tsrp.endOffset - tsrp.payloadOffset)
+        guard payloadSize > 0 else {
+            throw TranscriptExtractionError.missingTranscript
+        }
+
+        try handle.seek(toOffset: tsrp.payloadOffset)
+        let data = try handle.read(upToCount: payloadSize) ?? Data()
+        guard !data.isEmpty else {
+            throw TranscriptExtractionError.missingTranscript
+        }
+
+        guard let jsonText = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !jsonText.isEmpty
+        else {
+            throw TranscriptExtractionError.invalidData("Transcript data is not valid UTF-8.")
+        }
+        return jsonText
+    }
+
+    private struct AtomMatch {
+        let payloadOffset: UInt64
+        let endOffset: UInt64
+    }
+
+    private static func findAtom(
+        handle: FileHandle,
+        endOffset: UInt64,
+        targetType: String
+    ) throws -> AtomMatch? {
+        while try handle.offset() < endOffset {
+            let atomStart = try handle.offset()
+            guard let header = try readAtomHeader(handle: handle), header.size > 0 else {
+                break
+            }
+
+            let atomEnd = atomStart + header.size
+            if atomEnd > endOffset {
+                break
+            }
+
+            if header.type == targetType {
+                return AtomMatch(payloadOffset: try handle.offset(), endOffset: atomEnd)
+            }
+
+            try handle.seek(toOffset: atomEnd)
+        }
+        return nil
+    }
+
+    private struct AtomHeader {
+        let type: String
+        let size: UInt64
+    }
+
+    private static func readAtomHeader(handle: FileHandle) throws -> AtomHeader? {
+        let baseHeader = try handle.read(upToCount: 8) ?? Data()
+        guard baseHeader.count == 8 else {
+            return nil
+        }
+
+        let rawSize = baseHeader.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+        let typeData = baseHeader.dropFirst(4).prefix(4)
+        let type = String(data: typeData, encoding: .ascii) ?? ""
+
+        if rawSize == 1 {
+            let extended = try handle.read(upToCount: 8) ?? Data()
+            guard extended.count == 8 else {
+                return nil
+            }
+            let size = extended.withUnsafeBytes { $0.load(as: UInt64.self).bigEndian }
+            return AtomHeader(type: type, size: size)
+        }
+
+        return AtomHeader(type: type, size: UInt64(rawSize))
     }
 
     static func extractLocale(fromJSONText jsonText: String) -> String? {

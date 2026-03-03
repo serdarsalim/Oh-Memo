@@ -7,11 +7,13 @@ public struct FolderPickerClient {
 
     public func pickFolder(initialURL: URL? = nil) -> URL? {
         let panel = NSOpenPanel()
+        panel.title = "Choose Recordings Folder"
+        panel.message = "Select the Voice Memos Recordings folder, then click Select Recordings Folder."
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Select Folder"
+        panel.prompt = "Select Recordings Folder"
         panel.directoryURL = initialURL
 
         let response = panel.runModal()

@@ -230,9 +230,30 @@ struct RootView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
-                Text("Tip: typically under ~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 6) {
+                    Text("Default path:")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        Text(model.defaultRecordingsFolderPath)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            model.copyDefaultRecordingsFolderPath()
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 12, weight: .semibold))
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy default recordings folder path")
+                    }
+                }
             }
             .padding(.horizontal, 38)
             .padding(.vertical, 34)
@@ -245,6 +266,7 @@ struct RootView: View {
             AppearanceFooterToggle(selection: $model.appearanceMode)
         }
         .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private var effectiveColorScheme: ColorScheme {

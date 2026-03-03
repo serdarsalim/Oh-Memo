@@ -175,7 +175,11 @@ final class AppModel: ObservableObject {
     }
 
     func chooseFolder() {
-        let pickedFolder = folderPicker.pickFolder(initialURL: folderURL)
+        chooseFolder(initialURL: folderURL)
+    }
+
+    private func chooseFolder(initialURL: URL?) {
+        let pickedFolder = folderPicker.pickFolder(initialURL: initialURL)
         guard let pickedFolder else {
             return
         }
@@ -194,10 +198,11 @@ final class AppModel: ObservableObject {
     }
 
     func resetFolderToDefaultRecordings() {
-        guard applyDefaultRecordingsFolder(showFeedback: true) else {
-            errorBanner = "Default Voice Memos folder was not found at \(Self.defaultRecordingsFolderURL.path)."
+        if applyDefaultRecordingsFolder(showFeedback: true) {
             return
         }
+
+        chooseFolder(initialURL: Self.defaultRecordingsFolderURL)
     }
 
     func openCurrentFolderInFinder() {
@@ -208,6 +213,11 @@ final class AppModel: ObservableObject {
 #if os(macOS)
         NSWorkspace.shared.open(folderURL)
 #endif
+    }
+
+    func copyDefaultRecordingsFolderPath() {
+        clipboard.setString(defaultRecordingsFolderPath)
+        showTransientMessage("Copied default recordings folder path")
     }
 
     func copyCurrentTranscript() {
@@ -525,8 +535,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     private func applyDefaultRecordingsFolder(showFeedback: Bool) -> Bool {
         let defaultURL = Self.defaultRecordingsFolderURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: defaultURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard canReadFolder(defaultURL) else {
             return false
         }
 
@@ -544,6 +553,24 @@ final class AppModel: ObservableObject {
         }
 
         return true
+    }
+
+    private func canReadFolder(_ folderURL: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+
+        do {
+            _ = try FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func setFolder(_ folder: URL) {

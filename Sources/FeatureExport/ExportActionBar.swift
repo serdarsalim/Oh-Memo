@@ -64,17 +64,17 @@ public struct ExportActionBar: View {
             .help("Export All")
             .disabled(isBusy)
 
-            Button(action: onOpenFolder) {
+            Button(action: onChangeFolder) {
                 Image(systemName: "folder")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .contextMenu {
-                Button("Open in Finder", action: onOpenFolder)
                 Button("Change Folder", action: onChangeFolder)
+                Button("Open in Finder", action: onOpenFolder)
             }
-            .help("Open folder (right-click for more options)")
+            .help("Change recordings folder (right-click for more options)")
 
             Text("/\(folderName)")
                 .font(.caption)
