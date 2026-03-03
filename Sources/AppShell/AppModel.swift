@@ -87,6 +87,10 @@ final class AppModel: ObservableObject {
     private static let showArchivedRecordingsKey = "voiceMemo.showArchivedRecordings.v1"
     private static let includeArchivedInBulkExportKey = "voiceMemo.includeArchivedInBulkExport.v1"
     private static let initialScanBatchSize = 15
+    private static var defaultRecordingsFolderURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings", isDirectory: true)
+    }
     private var archivedRecordingIDs: Set<String>
 
     init(
@@ -162,6 +166,10 @@ final class AppModel: ObservableObject {
         OpenAITranscriptAnalyzer.defaultSystemPrompt
     }
 
+    var defaultRecordingsFolderPath: String {
+        Self.defaultRecordingsFolderURL.path
+    }
+
     func onAppear() {
         restoreSavedFolderIfAvailable()
     }
@@ -183,6 +191,13 @@ final class AppModel: ObservableObject {
 
     func rescan() {
         scanFolder()
+    }
+
+    func resetFolderToDefaultRecordings() {
+        guard applyDefaultRecordingsFolder(showFeedback: true) else {
+            errorBanner = "Default Voice Memos folder was not found at \(Self.defaultRecordingsFolderURL.path)."
+            return
+        }
     }
 
     func openCurrentFolderInFinder() {
@@ -323,6 +338,16 @@ final class AppModel: ObservableObject {
         saveRecordingDescriptions()
     }
 
+    private func autoApplySuggestedRecordingTitleIfNeeded(_ suggestedTitle: String?, for recording: RecordingItem) {
+        guard let suggestedTitle else { return }
+        let trimmedSuggestion = suggestedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSuggestion.isEmpty else { return }
+        let existingDescription = description(for: recording.id).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard existingDescription != trimmedSuggestion else { return }
+        setDescription(trimmedSuggestion, for: recording.id)
+        showTransientMessage("Renamed recording from AI suggestion")
+    }
+
     func setEditedTranscriptText(_ text: String, for recordingID: String) {
         guard let original = originalTranscriptText(for: recordingID) else { return }
         if text == original {
@@ -448,6 +473,7 @@ final class AppModel: ObservableObject {
             do {
                 let report = try await transcriptAnalyzer.analyze(
                     transcript: transcript,
+                    recordingTitle: recording.source.voiceMemoTitle,
                     apiKey: apiKey,
                     systemPrompt: promptForAnalysis
                 )
@@ -458,6 +484,7 @@ final class AppModel: ObservableObject {
                 )
                 aiReportsByRecordingID[recording.id] = cached
                 saveAIReports()
+                autoApplySuggestedRecordingTitleIfNeeded(report.title, for: recording)
             } catch {
                 aiAnalysisError = error.localizedDescription
             }
@@ -487,10 +514,36 @@ final class AppModel: ObservableObject {
             if let savedURL = try bookmarkStore.resolveSavedFolderURL() {
                 setFolder(savedURL)
                 scanFolder()
+                return
             }
+            _ = applyDefaultRecordingsFolder(showFeedback: false)
         } catch {
             errorBanner = "Could not restore saved folder. Choose a folder again."
         }
+    }
+
+    @discardableResult
+    private func applyDefaultRecordingsFolder(showFeedback: Bool) -> Bool {
+        let defaultURL = Self.defaultRecordingsFolderURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: defaultURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+
+        do {
+            try bookmarkStore.save(folderURL: defaultURL)
+        } catch {
+            errorBanner = "Using default folder for this session, but couldn't save permission: \(error.localizedDescription)"
+        }
+
+        setFolder(defaultURL)
+        scanFolder()
+
+        if showFeedback {
+            showTransientMessage("Reset folder to default Voice Memos Recordings")
+        }
+
+        return true
     }
 
     private func setFolder(_ folder: URL) {
@@ -525,6 +578,7 @@ final class AppModel: ObservableObject {
 
         let useCase = scanUseCase
         let folderToScan = folderURL
+        let previousRecordingIDs = Set(allRecordings.map(\.id))
 
         Task {
             do {
@@ -541,6 +595,7 @@ final class AppModel: ObservableObject {
                 scanSummary = initialResult
                 failures = initialResult.failures
                 refreshVisibleRecordings()
+                autoSelectNewestNewRecordingIfAvailable(previousRecordingIDs: previousRecordingIDs)
 
                 if selectedRecordingID == nil {
                     selectedRecordingID = visibleRecordings.first?.id
@@ -562,6 +617,7 @@ final class AppModel: ObservableObject {
                 scanSummary = mergedResult
                 failures = mergedResult.failures
                 refreshVisibleRecordings()
+                autoSelectNewestNewRecordingIfAvailable(previousRecordingIDs: previousRecordingIDs)
 
                 progressText = "Scan complete"
                 progressFraction = 1
@@ -611,6 +667,19 @@ final class AppModel: ObservableObject {
         if let selectedRecordingID,
            !visibleRecordings.contains(where: { $0.id == selectedRecordingID }) {
             self.selectedRecordingID = visibleRecordings.first?.id
+        }
+    }
+
+    private func autoSelectNewestNewRecordingIfAvailable(previousRecordingIDs: Set<String>) {
+        let newVisibleRecordings = visibleRecordings.filter { !previousRecordingIDs.contains($0.id) }
+        guard let newestNewRecording = newVisibleRecordings.max(by: { $0.source.effectiveDate < $1.source.effectiveDate }) else {
+            return
+        }
+        guard selectedRecordingID != newestNewRecording.id else { return }
+
+        selectedRecordingID = newestNewRecording.id
+        if hasOpenAIAPIKey {
+            analyzeSelectedTranscriptIfMissing()
         }
     }
 
@@ -775,25 +844,34 @@ final class AppModel: ObservableObject {
     }
 
     private func format(report: AITranscriptReport) -> String {
-        let actionItems = report.actionItems.map { "• \($0)" }.joined(separator: "\n")
-        let strengths = report.strengths.map { "• \($0)" }.joined(separator: "\n")
-        let improvements = report.improvements.map { "• \($0)" }.joined(separator: "\n")
+        var blocks: [String] = []
 
-        return """
-        Summary
-        \(report.summary)
+        if let title = report.title {
+            blocks.append("Title\n\(title)")
+        }
 
-        Conversion sentiment: \(report.score)/10 (\(report.sentiment))
+        blocks.append("Summary\n\(report.summary)")
 
-        Action Items
-        \(actionItems)
+        if let score = report.score {
+            blocks.append("Score\n\(score)/10")
+        }
 
-        What went well
-        \(strengths)
+        if !report.actionItems.isEmpty {
+            let actionItems = report.actionItems.map { "• \($0)" }.joined(separator: "\n")
+            blocks.append("Action Items\n\(actionItems)")
+        }
 
-        What to improve
-        \(improvements)
-        """
+        if !report.strengths.isEmpty {
+            let strengths = report.strengths.map { "• \($0)" }.joined(separator: "\n")
+            blocks.append("Strengths\n\(strengths)")
+        }
+
+        if !report.improvements.isEmpty {
+            let improvements = report.improvements.map { "• \($0)" }.joined(separator: "\n")
+            blocks.append("Improvements\n\(improvements)")
+        }
+
+        return blocks.joined(separator: "\n\n")
     }
 
     private static func loadAppearanceMode(defaults: UserDefaults) -> AppearanceMode {

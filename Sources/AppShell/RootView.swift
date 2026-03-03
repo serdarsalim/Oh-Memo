@@ -11,7 +11,7 @@ fileprivate enum CenterPaneMode {
 
 struct RootView: View {
     @StateObject private var model: AppModel
-    @State private var centerPaneMode: CenterPaneMode = .transcript
+    @State private var centerPaneMode: CenterPaneMode = .aiAssistant
     @Environment(\.colorScheme) private var systemColorScheme
     private let sidebarWidth: CGFloat = 302
 
@@ -39,9 +39,11 @@ struct RootView: View {
             AISettingsSheet(
                 keyMask: model.openAIAPIKeyMask,
                 hasSavedKey: model.hasOpenAIAPIKey,
+                defaultRecordingsFolderPath: model.defaultRecordingsFolderPath,
                 showArchivedRecordings: $model.showArchivedRecordings,
                 includeArchivedInBulkExport: $model.includeArchivedInBulkExport,
-                onSave: model.saveOpenAIAPIKey
+                onSave: model.saveOpenAIAPIKey,
+                onResetFolderToDefault: model.resetFolderToDefaultRecordings
             )
         }
         .sheet(isPresented: $model.isShowingAIPromptEditor) {
@@ -85,6 +87,8 @@ struct RootView: View {
                     RecordingsSidebarView(
                         searchQuery: $model.searchQuery,
                         selectedRecordingID: $model.selectedRecordingID,
+                        isScanning: model.isScanning,
+                        progressText: model.progressText,
                         recordings: model.visibleRecordings,
                         descriptionsByRecordingID: model.descriptionsByRecordingID,
                         archivedRecordingIDs: Set(model.visibleRecordings.map(\.id).filter { model.isArchived(recordingID: $0) }),
@@ -168,6 +172,7 @@ struct RootView: View {
     private var aiAssistantCard: some View {
         AIAssistantSidebarView(
             recording: model.selectedRecording,
+            recordingTitle: selectedRecordingHeaderTitle,
             report: model.selectedAIReport,
             isAnalyzing: model.aiIsAnalyzing,
             errorMessage: model.aiAnalysisError,
@@ -186,6 +191,24 @@ struct RootView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var selectedRecordingHeaderTitle: String {
+        guard let recording = model.selectedRecording else {
+            return "No Recording Selected"
+        }
+
+        let descriptionText = model.description(for: recording.id).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !descriptionText.isEmpty {
+            return descriptionText
+        }
+
+        let voiceMemoTitle = recording.source.voiceMemoTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !voiceMemoTitle.isEmpty {
+            return voiceMemoTitle
+        }
+
+        return recording.source.fileName
     }
 
     private var firstRunView: some View {
@@ -261,7 +284,7 @@ private struct CenterPaneModeRail: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             modeButton(
                 icon: "doc.text",
                 label: "Transcript",
@@ -273,8 +296,8 @@ private struct CenterPaneModeRail: View {
                 mode: .aiAssistant
             )
         }
-        .padding(6)
-        .background(.ultraThinMaterial, in: Capsule())
+        .padding(8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
     }
 
@@ -282,13 +305,17 @@ private struct CenterPaneModeRail: View {
         Button {
             selection = mode
         } label: {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 30, height: 30)
-                .background(
-                    Circle()
-                        .fill(selection == mode ? Color.accentColor.opacity(0.24) : Color.clear)
-                )
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(selection == mode ? Color.accentColor.opacity(0.24) : Color.clear)
+                    .frame(width: 52, height: 52)
+
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .frame(width: 56, height: 56)
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .help(label)
@@ -346,11 +373,14 @@ private struct FooterControls: View {
 private struct AISettingsSheet: View {
     let keyMask: String
     let hasSavedKey: Bool
+    let defaultRecordingsFolderPath: String
     @Binding var showArchivedRecordings: Bool
     @Binding var includeArchivedInBulkExport: Bool
     let onSave: (String) -> Void
+    let onResetFolderToDefault: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var draftKey: String = ""
+    @State private var isReplacingSavedKey: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -359,19 +389,60 @@ private struct AISettingsSheet: View {
 
             Text("OpenAI API Key")
                 .font(.headline)
-            Text(hasSavedKey ? "Saved key: \(keyMask)" : "No key saved")
-                .font(.caption)
-                .foregroundStyle(.secondary)
 
-            SecureField("sk-...", text: $draftKey)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit {
-                    saveIfNeeded()
+            if hasSavedKey && !isReplacingSavedKey {
+                Text("Saved key: \(keyMask)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Button("Replace Key") {
+                        isReplacingSavedKey = true
+                        draftKey = ""
+                    }
+
+                    Button("Remove Key") {
+                        onSave("")
+                        draftKey = ""
+                        isReplacingSavedKey = false
+                    }
                 }
+            } else {
+                Text(hasSavedKey ? "Enter a new key to replace the current key." : "No key saved")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-            Text("Paste a new key and close this window to save it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                SecureField("sk-...", text: $draftKey)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        if saveIfNeeded(), hasSavedKey {
+                            isReplacingSavedKey = false
+                        }
+                    }
+
+                if hasSavedKey {
+                    HStack {
+                        Button("Cancel Replacement") {
+                            draftKey = ""
+                            isReplacingSavedKey = false
+                        }
+
+                        Spacer()
+
+                        Button("Save New Key") {
+                            if saveIfNeeded() {
+                                isReplacingSavedKey = false
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                } else {
+                    Text("Paste a key and close this window to save it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             Divider()
 
@@ -387,17 +458,27 @@ private struct AISettingsSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            HStack {
-                if hasSavedKey {
-                    Button("Remove Key") {
-                        onSave("")
-                        draftKey = ""
-                    }
-                }
+            Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recordings Folder")
+                    .font(.headline)
+                Text(defaultRecordingsFolderPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Button("Reset to Default Recordings Folder") {
+                    onResetFolderToDefault()
+                }
+            }
+
+            HStack {
                 Spacer()
                 Button("Close") {
-                    saveIfNeeded()
+                    if !hasSavedKey {
+                        saveIfNeeded()
+                    }
+                    draftKey = ""
+                    isReplacingSavedKey = false
                     dismiss()
                 }
             }
@@ -406,11 +487,13 @@ private struct AISettingsSheet: View {
         .frame(width: 420)
     }
 
-    private func saveIfNeeded() {
+    @discardableResult
+    private func saveIfNeeded() -> Bool {
         let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         onSave(trimmed)
         draftKey = ""
+        return true
     }
 }
 
@@ -447,11 +530,26 @@ private struct AIPromptEditorSheet: View {
             TextEditor(text: $draftPrompt)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 280)
-                .padding(8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 14)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color(nsColor: .textBackgroundColor))
                 )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Available JSON fields")
+                    .font(.caption.weight(.semibold))
+                Text("Required: summary")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Text("Optional: title, actionItems, score, strengths, improvements")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Text("If AI returns title, it is applied as the recording name.")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
 
             HStack {
                 Button("Reset Default") {
@@ -473,7 +571,7 @@ private struct AIPromptEditorSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 760, height: 480)
+        .frame(width: 760, height: 634)
     }
 }
 

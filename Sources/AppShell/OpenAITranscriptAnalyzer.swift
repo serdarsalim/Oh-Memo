@@ -1,35 +1,59 @@
 import Foundation
 
 struct AITranscriptReport: Codable, Equatable, Sendable {
+    let title: String?
     let summary: String
     let actionItems: [String]
-    let sentiment: String
-    let score: Int
+    let score: Int?
     let strengths: [String]
     let improvements: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case summary
+        case actionItems
+        case score
+        case strengths
+        case improvements
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        title = decodedTitle?.isEmpty == true ? nil : decodedTitle
+        let decodedSummary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        summary = decodedSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "No summary provided."
+            : decodedSummary
+        actionItems = try container.decodeIfPresent([String].self, forKey: .actionItems) ?? []
+        score = try container.decodeIfPresent(Int.self, forKey: .score)
+        strengths = try container.decodeIfPresent([String].self, forKey: .strengths) ?? []
+        improvements = try container.decodeIfPresent([String].self, forKey: .improvements) ?? []
+    }
 }
 
 struct OpenAITranscriptAnalyzer {
     private let session: URLSession
 
     static let defaultSystemPrompt = """
-    You are an assistant that analyzes phone call transcripts.
+    You are an assistant that analyzes transcript text from voice notes, conversations, meetings, and calls.
     Return strict JSON with this exact schema:
     {
+      \"title\": string,
       \"summary\": string,
       \"actionItems\": string[],
-      \"sentiment\": string,
       \"score\": integer,
       \"strengths\": string[],
       \"improvements\": string[]
     }
     Rules:
-    - score must be integer 0-10 representing likelihood that this lead will convert
-    - sentiment must be a short conversion label like \"high\", \"medium\", \"low\", \"positive\", \"neutral\", or \"negative\"
-    - Keep summary under 120 words
-    - actionItems max 6 items
-    - strengths max 4 items
-    - improvements max 4 items
+    - title is optional; include it only when you want the app to rename the recording
+    - summary is required and must stay under 120 words
+    - actionItems is optional, max 6 items
+    - score is optional, integer 0-10 for overall call quality
+    - strengths is optional, max 4 items
+    - improvements is optional, max 4 items
+    - Omit optional fields if the transcript does not support them
     - Do not include markdown fences
     """
 
@@ -39,6 +63,7 @@ struct OpenAITranscriptAnalyzer {
 
     func analyze(
         transcript: String,
+        recordingTitle: String?,
         apiKey: String,
         systemPrompt: String = OpenAITranscriptAnalyzer.defaultSystemPrompt
     ) async throws -> AITranscriptReport {
@@ -46,11 +71,19 @@ struct OpenAITranscriptAnalyzer {
             throw AIAnalysisError.invalidRequest
         }
 
+        let trimmedTitle = recordingTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let userContent: String
+        if trimmedTitle.isEmpty {
+            userContent = "Transcript:\n\(transcript)"
+        } else {
+            userContent = "Current recording title: \(trimmedTitle)\n\nTranscript:\n\(transcript)"
+        }
+
         let payload = ChatCompletionsRequest(
             model: "gpt-4.1-mini",
             messages: [
                 .init(role: "system", content: systemPrompt),
-                .init(role: "user", content: "Transcript:\n\(transcript)")
+                .init(role: "user", content: userContent)
             ],
             temperature: 0.2,
             responseFormat: .init(type: "json_object")

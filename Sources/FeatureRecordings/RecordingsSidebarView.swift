@@ -7,6 +7,8 @@ import AppKit
 public struct RecordingsSidebarView: View {
     @Binding private var searchQuery: String
     @Binding private var selectedRecordingID: String?
+    private let isScanning: Bool
+    private let progressText: String
     private let recordings: [RecordingItem]
     private let descriptionsByRecordingID: [String: String]
     private let archivedRecordingIDs: Set<String>
@@ -18,6 +20,8 @@ public struct RecordingsSidebarView: View {
     public init(
         searchQuery: Binding<String>,
         selectedRecordingID: Binding<String?>,
+        isScanning: Bool,
+        progressText: String,
         recordings: [RecordingItem],
         descriptionsByRecordingID: [String: String],
         archivedRecordingIDs: Set<String>,
@@ -27,6 +31,8 @@ public struct RecordingsSidebarView: View {
     ) {
         _searchQuery = searchQuery
         _selectedRecordingID = selectedRecordingID
+        self.isScanning = isScanning
+        self.progressText = progressText
         self.recordings = recordings
         self.descriptionsByRecordingID = descriptionsByRecordingID
         self.archivedRecordingIDs = archivedRecordingIDs
@@ -58,13 +64,25 @@ public struct RecordingsSidebarView: View {
             .padding(.bottom, 8)
 
             if recordings.isEmpty {
-                ContentUnavailableView(
-                    "No Matches",
-                    systemImage: "text.magnifyingglass",
-                    description: Text("Try another transcript keyword or clear search.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(16)
+                if isScanning {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text(progressText.isEmpty ? "Loading recordings..." : progressText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(16)
+                } else {
+                    ContentUnavailableView(
+                        "No Matches",
+                        systemImage: "text.magnifyingglass",
+                        description: Text("Try another transcript keyword or clear search.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(16)
+                }
             } else {
                 ScrollViewReader { proxy in
                     List(recordings, selection: $selectedRecordingID) { item in
@@ -206,7 +224,7 @@ private struct RecordingRowView: View {
                     .font(.system(size: 13, weight: .regular))
                     .lineLimit(2)
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
+                    .onTapGesture(count: 1) {
                         beginEditing()
                     }
             }

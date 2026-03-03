@@ -70,8 +70,13 @@ public struct TranscriptDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
-                    descriptionFieldOrTitle(for: recording)
-                        .frame(height: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        descriptionFieldOrTitle(for: recording)
+                            .frame(height: 30)
+                        Text("Transcript")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                         .frame(maxWidth: .infinity)
 
                     if isTranscriptEdited(recording.id) {
@@ -115,7 +120,7 @@ public struct TranscriptDetailView: View {
                     .help(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
                     .accessibilityLabel(copiedRecordingID == recording.id ? "Copied" : "Copy transcript")
                 }
-                .frame(minHeight: 44)
+                .frame(minHeight: 52)
 
                 HStack(spacing: 10) {
                     Button(action: audioPlayer.togglePlayPause) {

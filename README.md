@@ -12,10 +12,11 @@ If Voice Memos feels too basic for serious follow-up work, this app gives you a 
 - Auto-detect new recordings from your folder.
 - Copy a single transcript or export all transcripts.
 - Run AI analysis on a selected transcript:
+  - Optional title suggestion (applied when the AI response includes `title`)
   - Summary
   - Action items
-  - Conversion sentiment score
-  - What went well / what to improve
+  - Optional quality score
+  - Strengths / improvements
 - Customize the AI prompt and keep your prompt saved across sessions.
 
 ## Why People Use It
@@ -23,7 +24,7 @@ If Voice Memos feels too basic for serious follow-up work, this app gives you a 
 - Turn long calls into clear next steps.
 - Find key conversations fast by keyword.
 - Keep transcript organization separate from the Voice Memos UI.
-- Get a lead-quality style summary quickly without manual review.
+- Get a concise transcript summary quickly without manual review.
 
 ## Quick Start
 
