@@ -63,3 +63,6 @@
 - Keep changes modular by target boundary.
 - Prefer transcript-content search over filename-based search.
 - Validate with `swift build` after edits.
+- Release packaging rule: whenever pushing a new app update, also rebuild and replace the distributable zip.
+  - Build zip with `./build-app.sh` (produces `dist/oh-memo-macos.zip`).
+  - Upload and replace release asset with `gh release upload v0.1.0 dist/oh-memo-macos.zip --clobber`.
